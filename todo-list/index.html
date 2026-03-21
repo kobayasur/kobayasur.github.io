@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8"> 
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TODOアプリ</title>
+</head>
+<body>
+<div id="app">
+  <h1>My Tasks</h1>
+  <input type="text" id="taskInput" placeholder="新しいタスク...">
+  <button onclick="addTask()">追加</button>
+  <ul id="taskList"></ul>
+</div>
+<script>
+// 1. ページを開いた時に、保存されているデータを読み込む
+window.onload = function() {
+    const savedTasks = localStorage.getItem('myTodo');
+    if (savedTasks) {
+        tasks = JSON.parse(savedTasks);
+        render();
+    }
+};
+
+let tasks = [];
+
+function addTask() {
+    const input = document.getElementById('taskInput');
+    if (input.value.trim() !== "") {
+        tasks.push(input.value);
+        
+        // 2. データをブラウザに保存する
+        saveData();
+        
+        render();
+        input.value = "";
+    }
+}
+
+function saveData() {
+    // 配列を文字列に変換して保存
+    localStorage.setItem('myTodo', JSON.stringify(tasks));
+}
+
+function render() {
+    const taskList = document.getElementById('taskList');
+    taskList.innerHTML = "";
+    tasks.forEach((task, index) => {
+        const li = document.createElement('li');
+        li.textContent = task;
+        
+        const btn = document.createElement('button');
+        btn.textContent = "削除";
+        btn.onclick = function() {
+            tasks.splice(index, 1);
+            saveData(); // 削除した後も保存
+            render();
+        };
+        
+        li.appendChild(btn);
+        taskList.appendChild(li);
+    });
+}
+</script>
+</body>
+</html>
