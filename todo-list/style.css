@@ -1,0 +1,11 @@
+button, input {
+  padding: 15px; /* タップしやすいサイズ */
+  font-size: 16px; /* 入力時に画面がズームされるのを防ぐサイズ */
+}
+li {
+  list-style: none;
+  border-bottom: 1px solid #eee;
+  padding: 10px;
+  display: flex;
+  justify-content: space-between;
+}
