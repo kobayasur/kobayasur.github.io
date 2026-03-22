@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>勤務管理マネージャー</title>
+    <style>
+        :root { --primary: #2563eb; --bg: #f1f5f9; }
+        body { font-family: sans-serif; background: var(--bg); margin: 0; padding: 10px; font-size: 16px; }
+        .card { background: white; border-radius: 12px; padding: 15px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        h2 { font-size: 1rem; margin: 0 0 10px 0; color: var(--primary); border-left: 4px solid var(--primary); padding-left: 8px; }
+        
+        input, select, button { width: 100%; padding: 12px; margin: 5px 0; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
+        button { background: var(--primary); color: white; border: none; font-weight: bold; }
+        .flex { display: flex; gap: 8px; align-items: center; }
+        
+        .staff-row { border-bottom: 1px solid #e2e8f0; padding: 12px 0; cursor: pointer; }
+        .staff-header { display: flex; justify-content: space-between; font-weight: bold; }
+        .total-hours { color: var(--primary); background: #eff6ff; padding: 2px 8px; border-radius: 4px; }
+        
+        .details { display: none; margin-top: 10px; overflow-x: auto; }
+        .details.active { display: block; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.8rem; background: #fff; min-width: 300px; }
+        th, td { border: 1px solid #e2e8f0; padding: 6px; text-align: center; }
+        th { background: #f8fafc; }
+        .sat { color: blue; }
+        .sun { color: red; }
+    </style>
+<link rel="manifest" href="manifest.json">
+</head>
+<body>
+
+    <div class="card">
+        <h2>1. スタッフ登録</h2>
+        <div class="flex">
+            <input type="text" id="staffName" placeholder="名前を入力">
+            <button onclick="addStaff()" style="width: 80px;">追加</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>2. 勤務入力</h2>
+        <select id="staffSelect"><option value="">スタッフを選択</option></select>
+        <input type="date" id="workDate">
+        <div class="flex">
+            <div style="flex:1"><small>開始</small><select id="startH"></select>:<select id="startM"></select></div>
+            <div style="flex:1"><small>終了</small><select id="endH"></select>:<select id="endM"></select></div>
+        </div>
+        <div><small>休憩(分)</small><input type="number" id="breakTime" value="60"></div>
+        <button onclick="saveRecord()">保存する</button>
+    </div>
+
+    <div class="card">
+        <h2>3. 月間集計・詳細一覧</h2>
+        <div id="displayArea"></div>
+    </div>
+
+<script>
+    let data = JSON.parse(localStorage.getItem('workLogData')) || [];
+    const weekDays = ["日", "月", "火", "水", "木", "金", "土"];
+
+    const setupTimeSelect = () => {
+        const pad = i => i.toString().padStart(2, '0');
+        ['startH', 'endH'].forEach(id => {
+            for(let i=0; i<24; i++) document.getElementById(id).innerHTML += `<option value="${pad(i)}">${pad(i)}</option>`;
+        });
+        // 10分単位に設定
+        ['startM', 'endM'].forEach(id => {
+            for(let i=0; i<60; i+=10) document.getElementById(id).innerHTML += `<option value="${pad(i)}">${pad(i)}</option>`;
+        });
+        document.getElementById('startH').value = "09"; document.getElementById('endH').value = "18";
+    };
+
+    function addStaff() {
+        const name = document.getElementById('staffName').value;
+        if (!name) return;
+        data.push({ id: Date.now(), name: name, records: [] });
+        saveAndRender();
+        document.getElementById('staffName').value = '';
+    }
+
+    function saveAndRender() {
+        localStorage.setItem('workLogData', JSON.stringify(data));
+        render();
+    }
+
+    function toggleDetails(id) {
+        document.getElementById(`det-${id}`).classList.toggle('active');
+    }
+
+function saveRecord() {
+    const sid = document.getElementById('staffSelect').value;
+    const dateStr = document.getElementById('workDate').value;
+    const start = document.getElementById('startH').value + ":" + document.getElementById('startM').value;
+    const end = document.getElementById('endH').value + ":" + document.getElementById('endM').value;
+    const brk = parseInt(document.getElementById('breakTime').value) || 0;
+
+    if (!sid || !dateStr) return alert("未入力項目があります");
+
+    // 保存前に現在のスタッフIDを一時保存
+    const lastSelectedId = sid;
+
+    const dateObj = new Date(dateStr);
+    const dayOfWeek = weekDays[dateObj.getDay()];
+    const formattedDate = dateStr.replace(/-/g, '/').slice(5) + `(${dayOfWeek})`;
+
+    const staff = data.find(s => s.id == sid);
+    const [sH, sM] = start.split(':').map(Number);
+    const [eH, eM] = end.split(':').map(Number);
+    const diffMin = (eH * 60 + eM) - (sH * 60 + sM) - brk;
+    const hours = (Math.max(0, diffMin) / 60).toFixed(2);
+
+    const idx = staff.records.findIndex(r => r.date === dateStr);
+    const record = { date: dateStr, displayDate: formattedDate, dayIdx: dateObj.getDay(), start, end, brk, hours };
+    
+    if (idx > -1) staff.records[idx] = record; else staff.records.push(record);
+    staff.records.sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    // localStorageへ保存
+    localStorage.setItem('workLogData', JSON.stringify(data));
+    // 最後に選んだスタッフIDも個別に保存
+    localStorage.setItem('lastStaffId', lastSelectedId);
+
+    render(); // 再描画（この中で選択状態を復元するよう修正）
+    alert("保存しました");
+}
+
+function render() {
+    const select = document.getElementById('staffSelect');
+    const area = document.getElementById('displayArea');
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    
+    // 現在選択されているIDを取得（保存直後、または起動時用）
+    const currentId = select.value || localStorage.getItem('lastStaffId');
+
+    select.innerHTML = '<option value="">スタッフを選択</option>';
+    area.innerHTML = '';
+
+    data.forEach(staff => {
+        const opt = document.createElement('option');
+        opt.value = staff.id;
+        opt.textContent = staff.name;
+        // 保存されていたIDと一致すれば選択状態にする
+        if (staff.id == currentId) opt.selected = true;
+        select.appendChild(opt);
+
+        // ...（以下、一覧表示のロジックはそのまま）...
+        const mRecords = staff.records.filter(r => r.date.startsWith(currentMonth));
+        const mTotal = mRecords.reduce((s, r) => s + parseFloat(r.hours), 0).toFixed(1);
+
+        const row = document.createElement('div');
+        row.className = 'staff-row';
+        row.innerHTML = `
+            <div class="staff-header" onclick="toggleDetails(${staff.id})">
+                <span>${staff.name} ▼</span>
+                <span class="total-hours">${mTotal}h</span>
+            </div>
+            <div class="details" id="det-${staff.id}">
+                <table>
+                    <thead><tr><th>日付</th><th>時間</th><th>休憩</th><th>計</th></tr></thead>
+                    <tbody>
+                        ${mRecords.map(r => {
+                            let dayClass = r.dayIdx === 6 ? 'sat' : (r.dayIdx === 0 ? 'sun' : '');
+                            return `<tr>
+                                <td class="${dayClass}">${r.displayDate}</td>
+                                <td>${r.start}-${r.end}</td>
+                                <td>${r.brk}m</td>
+                                <td>${r.hours}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        area.appendChild(row);
+    });
+}
+    window.onload = () => { setupTimeSelect(); document.getElementById('workDate').valueAsDate = new Date(); render(); };
+  
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js');
+  }
+
+</script>
+</body>
+</html>

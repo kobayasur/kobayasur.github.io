@@ -1,0 +1,15 @@
+{
+  "short_name": "勤務管理",
+  "name": "勤務集計マネージャーPWA",
+  "display": "standalone",
+  "start_url": "index.html",
+  "background_color": "#f1f5f9",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}
