@@ -25,6 +25,69 @@
         th { background: #f8fafc; }
         .sat { color: blue; }
         .sun { color: red; }
+        /* 横並び用の専用スタイル */
+.time-select-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 5px;
+    margin-top: 10px;
+}
+
+.time-box {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 0 5px;
+}
+
+.time-box select {
+    border: none;
+    background: transparent;
+    padding: 10px 2px;
+    margin: 0;
+    text-align: center;
+    flex: 1;
+}
+
+.time-separator {
+    font-weight: bold;
+    color: #64748b;
+    padding: 0 2px;
+}
+
+.label-sm {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-bottom: 2px;
+}
+/* 追加スタイル：月選択と削除ボタン */
+    .month-picker {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+    .month-picker input[type="month"] {
+        flex: 1;
+        padding: 8px;
+        margin: 0;
+    }
+    .btn-delete {
+        background: none;
+        color: #ef4444;
+        border: none;
+        width: auto;
+        padding: 5px 10px;
+        font-size: 1.2rem;
+        font-weight: normal;
+    }
+    .btn-delete:active {
+        opacity: 0.5;
+    }
     </style>
 <link rel="manifest" href="manifest.json">
 </head>
@@ -38,22 +101,51 @@
         </div>
     </div>
 
-    <div class="card">
-        <h2>2. 勤務入力</h2>
-        <select id="staffSelect"><option value="">スタッフを選択</option></select>
+<div class="card">
+    <h2>2. 勤務入力</h2>
+    <select id="staffSelect"><option value="">スタッフを選択</option></select>
+    
+    <div style="margin-top:10px;">
+        <div class="label-sm">日付</div>
         <input type="date" id="workDate">
-        <div class="flex">
-            <div style="flex:1"><small>開始</small><select id="startH"></select>:<select id="startM"></select></div>
-            <div style="flex:1"><small>終了</small><select id="endH"></select>:<select id="endM"></select></div>
-        </div>
-        <div><small>休憩(分)</small><input type="number" id="breakTime" value="60"></div>
-        <button onclick="saveRecord()">保存する</button>
     </div>
 
-    <div class="card">
-        <h2>3. 月間集計・詳細一覧</h2>
-        <div id="displayArea"></div>
+    <div class="time-select-container">
+        <div style="flex: 1;">
+            <div class="label-sm">開始</div>
+            <div class="time-box">
+                <select id="startH"></select>
+                <span class="time-separator">:</span>
+                <select id="startM"></select>
+            </div>
+        </div>
+
+        <div style="flex: 1;">
+            <div class="label-sm">終了</div>
+            <div class="time-box">
+                <select id="endH"></select>
+                <span class="time-separator">:</span>
+                <select id="endM"></select>
+            </div>
+        </div>
     </div>
+
+    <div style="margin-top:10px;">
+        <div class="label-sm">休憩(分)</div>
+        <input type="number" id="breakTime" value="60">
+    </div>
+    
+    <button onclick="saveRecord()" style="margin-top:15px;">保存する</button>
+</div>
+<div class="card">
+    <h2>3. 月間集計・詳細一覧</h2>
+<div class="month-picker">
+    <small>表示月:</small>
+    <input type="month" id="viewMonth" onchange="render()">
+    <button onclick="downloadCSV()" style="width: auto; padding: 8px 15px; margin: 0; background: #059669;">CSV出力</button>
+</div>
+    <div id="displayArea"></div>
+</div>
 
 <script>
     let data = JSON.parse(localStorage.getItem('workLogData')) || [];
@@ -125,57 +217,114 @@ function saveRecord() {
     alert("保存しました");
 }
 
-function render() {
-    const select = document.getElementById('staffSelect');
-    const area = document.getElementById('displayArea');
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    
-    // 現在選択されているIDを取得（保存直後、または起動時用）
-    const currentId = select.value || localStorage.getItem('lastStaffId');
+// 初期設定：表示月のデフォルトを「今月」にする
+    document.getElementById('viewMonth').value = new Date().toISOString().slice(0, 7);
 
-    select.innerHTML = '<option value="">スタッフを選択</option>';
-    area.innerHTML = '';
+    // 削除機能の追加
+    function deleteRecord(staffId, date) {
+        if (!confirm(`${date} の記録を削除しますか？`)) return;
+        
+        const staff = data.find(s => s.id == staffId);
+        staff.records = staff.records.filter(r => r.date !== date);
+        
+        saveAndRender();
+    }
 
+    // render関数を「表示月の選択」に合わせて修正
+    function render() {
+        const select = document.getElementById('staffSelect');
+        const area = document.getElementById('displayArea');
+        // 表示対象の月を取得
+        const targetMonth = document.getElementById('viewMonth').value;
+        
+        const currentId = select.value || localStorage.getItem('lastStaffId');
+
+        select.innerHTML = '<option value="">スタッフを選択</option>';
+        area.innerHTML = '';
+
+        data.forEach(staff => {
+            const opt = document.createElement('option');
+            opt.value = staff.id;
+            opt.textContent = staff.name;
+            if (staff.id == currentId) opt.selected = true;
+            select.appendChild(opt);
+
+            // 選択された月(targetMonth)でフィルタリング
+            const mRecords = staff.records.filter(r => r.date.startsWith(targetMonth));
+            const mTotal = mRecords.reduce((s, r) => s + parseFloat(r.hours), 0).toFixed(1);
+
+            const row = document.createElement('div');
+            row.className = 'staff-row';
+            row.innerHTML = `
+                <div class="staff-header" onclick="toggleDetails(${staff.id})">
+                    <span>${staff.name} ▼</span>
+                    <span class="total-hours">${mTotal}h</span>
+                </div>
+                <div class="details" id="det-${staff.id}">
+                    <table>
+                        <thead><tr><th>日付</th><th>時間</th><th>計</th><th></th></tr></thead>
+                        <tbody>
+                            ${mRecords.map(r => {
+                                let dayClass = r.dayIdx === 6 ? 'sat' : (r.dayIdx === 0 ? 'sun' : '');
+                                return `<tr>
+                                    <td class="${dayClass}">${r.displayDate}</td>
+                                    <td>${r.start}-${r.end}</td>
+                                    <td>${r.hours}</td>
+                                    <td><button class="btn-delete" onclick="event.stopPropagation(); deleteRecord(${staff.id}, '${r.date}')">×</button></td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            area.appendChild(row);
+        });
+    }
+
+function downloadCSV() {
+    const targetMonth = document.getElementById('viewMonth').value;
+    if (!data || data.length === 0) return alert("データがありません");
+
+    // CSVのヘッダー
+    let csvContent = "\ufeff"; // Excelでの文字化け防止(BOM)
+    csvContent += "スタッフ名,日付,開始時刻,終了時刻,休憩(分),勤務時間(h)\n";
+
+    // データの抽出
+    let hasData = false;
     data.forEach(staff => {
-        const opt = document.createElement('option');
-        opt.value = staff.id;
-        opt.textContent = staff.name;
-        // 保存されていたIDと一致すれば選択状態にする
-        if (staff.id == currentId) opt.selected = true;
-        select.appendChild(opt);
-
-        // ...（以下、一覧表示のロジックはそのまま）...
-        const mRecords = staff.records.filter(r => r.date.startsWith(currentMonth));
-        const mTotal = mRecords.reduce((s, r) => s + parseFloat(r.hours), 0).toFixed(1);
-
-        const row = document.createElement('div');
-        row.className = 'staff-row';
-        row.innerHTML = `
-            <div class="staff-header" onclick="toggleDetails(${staff.id})">
-                <span>${staff.name} ▼</span>
-                <span class="total-hours">${mTotal}h</span>
-            </div>
-            <div class="details" id="det-${staff.id}">
-                <table>
-                    <thead><tr><th>日付</th><th>時間</th><th>休憩</th><th>計</th></tr></thead>
-                    <tbody>
-                        ${mRecords.map(r => {
-                            let dayClass = r.dayIdx === 6 ? 'sat' : (r.dayIdx === 0 ? 'sun' : '');
-                            return `<tr>
-                                <td class="${dayClass}">${r.displayDate}</td>
-                                <td>${r.start}-${r.end}</td>
-                                <td>${r.brk}m</td>
-                                <td>${r.hours}</td>
-                            </tr>`;
-                        }).join('')}
-                    </tbody>
-                </table>
-            </div>
-        `;
-        area.appendChild(row);
+        const mRecords = staff.records.filter(r => r.date.startsWith(targetMonth));
+        mRecords.forEach(r => {
+            hasData = true;
+            // カンマ区切りの一行を作成
+            const row = [
+                staff.name,
+                r.displayDate,
+                r.start,
+                r.end,
+                r.brk,
+                r.hours
+            ].join(",");
+            csvContent += row + "\n";
+        });
     });
+
+    if (!hasData) return alert(`${targetMonth} のデータは見つかりませんでした`);
+
+    // ファイルのダウンロード処理
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    
+    link.setAttribute("href", url);
+    link.setAttribute("download", `work_report_${targetMonth}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
-    window.onload = () => { setupTimeSelect(); document.getElementById('workDate').valueAsDate = new Date(); render(); };
+
+        window.onload = () => { setupTimeSelect(); document.getElementById('workDate').valueAsDate = new Date(); render(); };
   
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js');
