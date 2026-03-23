@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Echo Test App</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f0f2f5; }
+        #status { margin-bottom: 20px; font-weight: bold; color: #555; }
+        button { padding: 15px 30px; font-size: 1.2rem; cursor: pointer; border: none; border-radius: 50px; background: #007bff; color: white; transition: 0.3s; }
+        button:disabled { background: #ccc; }
+        .result-box { margin-top: 20px; padding: 15px; background: white; border-radius: 10px; width: 80%; max-width: 400px; min-height: 50px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+
+    <div id="status">ボタンを押して話しかけてください</div>
+    <button id="startBtn">話す</button>
+    <div class="result-box" id="resultText">聞き取った内容がここに表示されます</div>
+
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const resultText = document.getElementById('resultText');
+        const statusText = document.getElementById('status');
+
+        // Web Speech APIの初期化
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("お使いのブラウザは音声認識に対応していません。Chrome等をお試しください。");
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'ja-JP';
+        recognition.interimResults = false; // 確定した結果のみ取得
+
+        // ボタンクリックで認識開始
+        startBtn.addEventListener('click', () => {
+            recognition.start();
+            statusText.innerText = "聴取中...";
+            startBtn.disabled = true;
+        });
+
+        // 音声を認識した時の処理
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            resultText.innerText = `あなた: ${transcript}`;
+            speak(transcript);
+        };
+
+        recognition.onend = () => {
+            statusText.innerText = "終了";
+            startBtn.disabled = false;
+        };
+
+        // 読み上げ機能
+        function speak(text) {
+            const uttr = new SpeechSynthesisUtterance(text);
+            uttr.lang = 'ja-JP';
+            uttr.onstart = () => statusText.innerText = "返答中...";
+            uttr.onend = () => statusText.innerText = "待機中";
+            window.speechSynthesis.speak(uttr);
+        }
+    </script>
+</body>
+</html>
