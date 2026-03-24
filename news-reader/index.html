@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple PWA RSS Reader</title>
+    <link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogIlJTUyBSZWFkZXIiLAogICJzaG9ydF9uYW1lIjogIlJTUyIsCiAgInN0YXJ0X3VybCI6ICIuIiwKICAiZGlzcGxheSI6ICJzdGFuZGFsb25lIiwKICAiYmFja2dyb3VuZF9jb2xvciI6ICIjZmZmZmZmIiwKICAidGhlbWVfY29sb3ciOiAiIzAwN2JmZiIKfQ==">
+    <style>
+        body { font-family: sans-serif; margin: 0; background: #f4f4f9; color: #333; }
+        header { background: #007bff; color: white; padding: 1rem; text-align: center; position: sticky; top: 0; }
+        #container { max-width: 600px; margin: auto; padding: 10px; }
+        .card { background: white; margin-bottom: 15px; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .card h3 { margin-top: 0; font-size: 1.1rem; }
+        .card a { color: #007bff; text-decoration: none; font-weight: bold; }
+        .card p { font-size: 0.9rem; color: #666; line-height: 1.4; }
+        .meta { font-size: 0.8rem; color: #999; margin-bottom: 8px; }
+        #loader { text-align: center; padding: 20px; display: none; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>My RSS Reader</h1>
+</header>
+
+<div id="container">
+    <div id="loader">読み込み中...</div>
+    <div id="news-list"></div>
+</div>
+
+<script>
+    // 1. 取得したいRSSフィードのURL（ここでは例としてTechCrunch）
+    const RSS_URL = 'https://jp.techcrunch.com/feed/';
+    // CORS回避のためのAPI（rss2json）
+    const API_URL = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(RSS_URL)}`;
+
+    const newsList = document.getElementById('news-list');
+    const loader = document.getElementById('loader');
+
+    async function fetchRSS() {
+        loader.style.display = 'block';
+        try {
+            const response = await fetch(API_URL);
+            const data = await response.json();
+            
+            if (data.status === 'ok') {
+                renderNews(data.items);
+            } else {
+                newsList.innerHTML = 'フィードの取得に失敗しました。';
+            }
+        } catch (error) {
+            newsList.innerHTML = 'エラーが発生しました。オフラインかもしれません。';
+        } finally {
+            loader.style.display = 'none';
+        }
+    }
+
+    function renderNews(items) {
+        newsList.innerHTML = items.map(item => `
+            <div class="card">
+                <div class="meta">${new Date(item.pubDate).toLocaleDateString()}</div>
+                <h3>${item.title}</h3>
+                <p>${item.description.replace(/<[^>]*>?/gm, '').substring(0, 100)}...</p>
+                <a href="${item.link}" target="_blank">記事を読む →</a>
+            </div>
+        `).join('');
+    }
+
+    // 初回読み込み
+    fetchRSS();
+
+    // 2. Service Worker の登録 (PWA化の必須コード)
+    if ('service-worker' in navigator) {
+        window.addEventListener('load', () => {
+            const swCode = `
+                self.addEventListener('fetch', (event) => {
+                    event.respondWith(
+                        fetch(event.request).catch(() => caches.match(event.request))
+                    );
+                });
+            `;
+            const blob = new Blob([swCode], { type: 'text/javascript' });
+            const swUrl = URL.createObjectURL(blob);
+            navigator.serviceWorker.register(swUrl);
+        });
+    }
+</script>
+
+</body>
+</html>
