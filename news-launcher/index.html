@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PWA Launcher & News</title>
+    <style>
+        :root { --primary: #007bff; --success: #28a745; --news: #8e44ad; }
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #222; color: white; padding: 20px 0; }
+        .container { text-align: center; background: #333; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 90%; max-width: 400px; }
+        h1 { font-size: 1.5rem; margin-bottom: 20px; color: #eee; }
+        select, input { width: 100%; padding: 12px; font-size: 1rem; border-radius: 8px; margin-bottom: 10px; border: none; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-bottom: 8px; transition: opacity 0.2s; }
+        button:active { opacity: 0.7; }
+        .btn-news { background: var(--news); }
+        .btn-delete { background: #666; font-size: 0.8rem; margin-top: 5px; }
+        .add-zone { margin-top: 20px; border-top: 1px solid #444; padding-top: 20px; font-size: 0.8rem; text-align: left; }
+        .status { font-size: 0.8rem; color: #aaa; margin-top: 10px; min-height: 1.2rem; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>PWA Launcher</h1>
+        
+        <label style="font-size: 0.8rem; display: block; margin-bottom: 5px;">起動またはニュース読上げを選択:</label>
+        <select id="pwa-select"></select>
+
+        <button onclick="launchPWA()">アプリを開く</button>
+        <button onclick="readNews()" class="btn-news">このニュースを聴く (RSS)</button>
+        <button onclick="stopNews()" style="background:#555; font-size:0.8rem;">再生停止</button>
+        
+        <div id="status" class="status"></div>
+
+        <button onclick="deletePWA()" class="btn-delete">リストから削除</button>
+
+        <div class="add-zone">
+            <p style="text-align:center; font-weight:bold;">新しいPWA/RSSを追加</p>
+            <input type="text" id="newName" placeholder="名前 (例: Yahooニュース)">
+            <input type="url" id="newUrl" placeholder="URL (https://...)">
+            <button onclick="addPWA()" style="background: var(--success);">リストに追加</button>
+            <p style="color:#888; font-size:0.7rem;">※ニュース機能を使う場合はRSSフィードのURLを入力してください。</p>
+        </div>
+    </div>
+
+    <script>
+        const defaultPwas = [
+            { name: "Google News (RSS)", url: "https://news.google.com/rss?hl=ja&gl=JP&ceid=JP:ja" },
+            { name: "PC Watch", url: "https://pc.watch.impress.co.jp/data/rss/1.0/pcw/feed.rdf" },
+            { name: "Akiba PC Hotline", url: "https://akiba-pc.watch.impress.co.jp/data/rss/1.0/ah/feed.rdf" },
+            { name: "ケータイ Watch", url: "https://k-tai.watch.impress.co.jp/data/rss/1.0/ktw/feed.rdf" },
+            { name: "窓の杜", url: "https://forest.watch.impress.co.jp/data/rss/1.0/wf/feed.rdf" },
+            { name: "読売", url: "https://assets.wor.jp/rss/rdf/yomiuri/latestnews.rdf" },
+            { name: "日経", url: "https://assets.wor.jp/rss/rdf/nikkei/news.rdf" },
+            { name: "ギズモード・ジャパン", url: "https://www.gizmodo.jp/index.xml" },
+            { name: "はてなブックマーク (人気)", url: "https://b.hatena.ne.jp/hotentry.rss" },
+
+        ];
+
+        const synth = window.speechSynthesis;
+
+        function launchPWA() {
+            const url = document.getElementById('pwa-select').value;
+            if (url) window.location.href = url;
+        }
+
+        function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
+// --- ニュース読み上げ機能（詳細版） ---
+async function readNews() {
+    const rssUrl = document.getElementById('pwa-select').value;
+    const name = document.getElementById('pwa-select').options[document.getElementById('pwa-select').selectedIndex].text;
+    
+    // RSS判定（簡易チェック）
+    if (!rssUrl.includes('rss') && !rssUrl.includes('.xml')) {
+        return alert("このURLはRSSフィードではない可能性があります。ニュース機能はRSS専用です。");
+    }
+
+    setStatus("最新ニュースを取得中...");
+    stopNews();
+
+    try {
+        const response = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`);
+        const data = await response.json();
+
+        if (data.status !== 'ok') throw new Error();
+
+        setStatus(`${name} を詳細読み上げ中...`);
+        
+        speak(`${name}の最新ニュースを詳しくお伝えします。`);
+
+        // 上位3件に絞って、内容（Description）まで深く読み上げる
+        data.items.slice(0, 5).forEach((item, index) => {
+            // タイトルを読み上げ
+            speak(`第${index + 1}ニュース。タイトル、${item.title}。`);
+            
+            // 本文（要約）のクリーニング（HTMLタグが含まれる場合があるため除去）
+            const plainText = item.description.replace(/<[^>]*>?/gm, '').trim();
+            
+            if (plainText) {
+                speak(`内容をお伝えします。${plainText}`);
+            } else {
+                speak(`詳細な内容は配信元をご確認ください。`);
+            }
+            
+            // ニュースの間に少し間を置く
+            speak(`。`); 
+        });
+
+        speak("ニュースの詳細は以上です。");
+    } catch (e) {
+        setStatus("読み込み失敗。URLを確認してください。");
+    }
+}
+
+        function speak(text) {
+            const uttr = new SpeechSynthesisUtterance(text);
+            const voices = synth.getVoices();
+            // 日本語の女性の声を優先的に探す
+            const femaleVoice = voices.find(v => (v.name.includes('Google') || v.name.includes('Kyoko')) && v.lang.includes('ja'));
+            
+            if (femaleVoice) uttr.voice = femaleVoice;
+            uttr.lang = 'ja-JP';
+            //uttr.pitch = 1.1; // 少し高めの声
+            uttr.pitch = 1.0;
+            //uttr.rate = 1.0;  // 標準速度
+            uttr.rate = 0.9;
+            synth.speak(uttr);
+        }
+
+        function stopNews() {
+            synth.cancel();
+            setStatus("");
+        }
+
+        // --- リスト管理機能 ---
+        function renderList() {
+            const select = document.getElementById('pwa-select');
+            select.innerHTML = '';
+            const saved = JSON.parse(localStorage.getItem('myPwas') || '[]');
+            [...defaultPwas, ...saved].forEach(pwa => {
+                const opt = document.createElement('option');
+                opt.value = pwa.url;
+                opt.textContent = pwa.name;
+                select.appendChild(opt);
+            });
+        }
+
+        function addPWA() {
+            const name = document.getElementById('newName').value;
+            const url = document.getElementById('newUrl').value;
+            if (!name || !url) return alert('名前とURLを入力してください');
+
+            const saved = JSON.parse(localStorage.getItem('myPwas') || '[]');
+            saved.push({ name, url });
+            localStorage.setItem('myPwas', JSON.stringify(saved));
+            
+            document.getElementById('newName').value = '';
+            document.getElementById('newUrl').value = '';
+            renderList();
+            alert('追加しました！');
+        }
+
+        function deletePWA() {
+            const select = document.getElementById('pwa-select');
+            const url = select.value;
+            if (defaultPwas.some(p => p.url === url)) return alert('デフォルト項目は削除できません');
+            if (!confirm(`削除しますか？`)) return;
+
+            let saved = JSON.parse(localStorage.getItem('myPwas') || '[]');
+            saved = saved.filter(p => p.url !== url);
+            localStorage.setItem('myPwas', JSON.stringify(saved));
+            renderList();
+        }
+
+        // 音声リストの読み込み待ち（ブラウザ対策）
+        window.speechSynthesis.onvoiceschanged = () => {};
+        window.onload = renderList;
+    </script>
+</body>
+</html>
