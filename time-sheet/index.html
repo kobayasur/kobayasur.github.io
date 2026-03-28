@@ -143,6 +143,8 @@
     <small>表示月:</small>
     <input type="month" id="viewMonth" onchange="render()">
     <button onclick="downloadCSV()" style="width: auto; padding: 8px 15px; margin: 0; background: #059669;">CSV出力</button>
+<button onclick="document.getElementById('csvFile').click()" style="width: auto; padding: 8px 15px; margin: 0; background: #64748b;">インポート</button>
+<input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCSV(this)">
 </div>
     <div id="displayArea"></div>
 </div>
@@ -183,38 +185,51 @@
 function saveRecord() {
     const sid = document.getElementById('staffSelect').value;
     const dateStr = document.getElementById('workDate').value;
-    const start = document.getElementById('startH').value + ":" + document.getElementById('startM').value;
-    const end = document.getElementById('endH').value + ":" + document.getElementById('endM').value;
-    const brk = parseInt(document.getElementById('breakTime').value) || 0;
+    const startH = document.getElementById('startH').value;
+    const startM = document.getElementById('startM').value;
+    const endH = document.getElementById('endH').value;
+    const endM = document.getElementById('endM').value;
+    let brk = parseInt(document.getElementById('breakTime').value) || 0;
 
     if (!sid || !dateStr) return alert("未入力項目があります");
 
-    // 保存前に現在のスタッフIDを一時保存
     const lastSelectedId = sid;
+    const start = startH + ":" + startM;
+    const end = endH + ":" + endM;
+
+    // --- 自動休憩追加ロジック ---
+    // 終了時刻が20時以降（20:00, 20:10...）の場合、休憩を30分加算
+    if (parseInt(endH) >= 20) {
+        brk += 30;
+    }
+    // -------------------------
 
     const dateObj = new Date(dateStr);
     const dayOfWeek = weekDays[dateObj.getDay()];
     const formattedDate = dateStr.replace(/-/g, '/').slice(5) + `(${dayOfWeek})`;
 
     const staff = data.find(s => s.id == sid);
-    const [sH, sM] = start.split(':').map(Number);
-    const [eH, eM] = end.split(':').map(Number);
+    const [sH, sM] = [parseInt(startH), parseInt(startM)];
+    const [eH, eM] = [parseInt(endH), parseInt(endM)];
+    
+    // 総勤務分数の計算
     const diffMin = (eH * 60 + eM) - (sH * 60 + sM) - brk;
+    // 時間単位に変換（マイナスにならないよう調整）
     const hours = (Math.max(0, diffMin) / 60).toFixed(2);
 
     const idx = staff.records.findIndex(r => r.date === dateStr);
+    // 保存するレコード（brkは加算後の値を入れるか、元の入力値を入れるか選べますが、
+    // 計算結果の整合性のため、加算後のbrkを保存するようにしています）
     const record = { date: dateStr, displayDate: formattedDate, dayIdx: dateObj.getDay(), start, end, brk, hours };
     
     if (idx > -1) staff.records[idx] = record; else staff.records.push(record);
     staff.records.sort((a, b) => new Date(a.date) - new Date(b.date));
     
-    // localStorageへ保存
     localStorage.setItem('workLogData', JSON.stringify(data));
-    // 最後に選んだスタッフIDも個別に保存
     localStorage.setItem('lastStaffId', lastSelectedId);
 
-    render(); // 再描画（この中で選択状態を復元するよう修正）
-    alert("保存しました");
+    render();
+    alert(`保存しました${parseInt(endH) >= 20 ? "（夜間休憩30分を追加適用）" : ""}`);
 }
 
 // 初期設定：表示月のデフォルトを「今月」にする
@@ -323,7 +338,66 @@ function downloadCSV() {
     link.click();
     document.body.removeChild(link);
 }
+function importCSV(input) {
+    const file = input.files[0];
+    if (!file) return;
 
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const text = e.target.result;
+        const lines = text.split(/\r\n|\n/);
+        
+        // ヘッダーをスキップ (BOMがある場合はそれも考慮)
+        // 1行目: スタッフ名,日付,開始時刻,終了時刻,休憩(分),勤務時間(h)
+        for (let i = 1; i < lines.length; i++) {
+            if (!lines[i]) continue;
+            
+            const [name, displayDate, start, end, brk, hours] = lines[i].split(',');
+            if (!name || !displayDate) continue;
+
+            // 名前からスタッフを検索、いなければ作成
+            let staff = data.find(s => s.name === name);
+            if (!staff) {
+                staff = { id: Date.now() + i, name: name, records: [] };
+                data.push(staff);
+            }
+
+            // displayDate "03/28(土)" から システム用date "2026-03-28" を復元
+            // ※CSV出力時のファイル名にある年月を基準にするのが理想ですが、
+            // 簡易的に「現在の年-月」を補完するか、既存のロジックで保存します
+            const currentYearMonth = document.getElementById('viewMonth').value;
+            const dayPart = displayDate.split('(')[0]; // "03/28"
+            const systemDate = `${currentYearMonth.slice(0,4)}-${dayPart.replace('/', '-')}`;
+
+            const dateObj = new Date(systemDate);
+            const dayIdx = isNaN(dateObj.getDay()) ? 0 : dateObj.getDay();
+
+            const record = { 
+                date: systemDate, 
+                displayDate: displayDate, 
+                dayIdx: dayIdx, 
+                start, 
+                end, 
+                brk: parseInt(brk), 
+                hours 
+            };
+
+            // 重複チェック（同じ日付があれば上書き）
+            const existingIdx = staff.records.findIndex(r => r.date === systemDate);
+            if (existingIdx > -1) {
+                staff.records[existingIdx] = record;
+            } else {
+                staff.records.push(record);
+            }
+            staff.records.sort((a, b) => new Date(a.date) - new Date(b.date));
+        }
+
+        saveAndRender();
+        alert("インポートが完了しました。");
+        input.value = ""; // 連続インポート用にリセット
+    };
+    reader.readAsText(file);
+}
         window.onload = () => { setupTimeSelect(); document.getElementById('workDate').valueAsDate = new Date(); render(); };
   
   if ('serviceWorker' in navigator) {
