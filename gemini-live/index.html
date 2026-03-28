@@ -71,11 +71,21 @@ const URL = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelang
             };
 
             socket.onerror = (e) => log('Error: ' + JSON.stringify(e));
+            
             socket.onclose = (event) => {
-    console.log("Close Event Details:", event);
-    statusDiv.innerText = `ステータス: 切断されました (コード: ${event.code}, 理由: ${event.reason})`;
-    log(`[System]: Closed. Code: ${event.code}, Reason: ${event.reason}`);
+    // 1006の場合、通常 reason は空ですが、wasClean が false になります
+    console.error("WebSocket Close Details:", {
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean
+    });
+    
+    if (event.code === 1006) {
+        log("エラー 1006: ネットワーク接続に失敗しました。ローカルサーバー経由か、URL/APIキーが正しいか確認してください。");
+    }
 };
+            
+            
         };
 
         // 2. 送信ボタンの処理
