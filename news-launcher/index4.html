@@ -56,7 +56,7 @@
 
     <div id="newsList"></div>
 
-<audio id="dummy-audio" loop src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA="></audio>
+<audio id="dummy-audio" loop src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA="></audio>
 
     <script>
         const defaultPwas = [
@@ -138,6 +138,12 @@ speechSynthesis.onvoiceschanged = loadVoices;
 
 // --- speak関数 (名前ベースで音声を選択するように変更) ---
 function speak(text) {
+
+    // オーディオが止まっていたら叩き起こす
+    if (dummyAudio.paused) {
+        dummyAudio.play();
+    }
+    
     const uttr = new SpeechSynthesisUtterance(text);
     const selectedName = voiceSelect.value;
     const voice = allVoices.find(v => v.name === selectedName);
@@ -214,7 +220,20 @@ async function fetchAndReadNews() {
                 { src: 'https://via.placeholder.com/512', sizes: '512x512', type: 'image/png' }
             ]
         });
+        
+    // 既存の Metadata 設定のあとに追加
+    navigator.mediaSession.playbackState = "playing"; 
 
+    // 「次の曲」ボタンで次のニュースサイトへスキップできるようにする（おまけ）
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+        onSourceFinished(); 
+    });
+    // 以下のハンドラを登録することで、OSに「制御可能なプレイヤー」だと認識させます
+    navigator.mediaSession.setActionHandler('play', () => {
+        dummyAudio.play();
+        navigator.mediaSession.playbackState = "playing";
+    });
+    
         // ロック画面のボタン（再生・停止）とアプリの動作を紐付ける
         navigator.mediaSession.setActionHandler('pause', () => {
             stopNews();
