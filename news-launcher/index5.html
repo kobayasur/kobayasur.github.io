@@ -207,21 +207,16 @@ let wakeLock = null;
 // --- fetchAndReadNews を少し修正（連続再生対応） ---
 async function fetchAndReadNews() {
 
-    // スリープ防止をリクエスト
-    if ('wakeLock' in navigator) {
-        try {
-            //wakeLock = await navigator.wakeLock.request('screen');
-        } catch (err) {
-            console.log("WakeLock error:", err);
-        }
-    }
-    
-    // 1. 無音再生を開始
+    // 【重要】開始前に一度クリアし、少し待つことでエンジンの混乱を防ぐ
+    synth.cancel();
+
+    // ユーザー操作の直後なので、ここでオーディオとWakeLockを確実に起動
     try {
         await dummyAudio.play();
-    } catch (e) {
-        console.log("再生ブロック解除のためユーザー操作が必要です", e);
-    }
+        if ('wakeLock' in navigator && !wakeLock) {
+            wakeLock = await navigator.wakeLock.request('screen');
+        }
+    } catch (e) { console.log("初期化エラー:", e); }
 
     // 2. Media Session API でロック画面に情報を登録
     if ('mediaSession' in navigator) {
@@ -263,7 +258,6 @@ async function fetchAndReadNews() {
     const url = select.value;
     if (!url) return;
 
-    stopNews();
     loader.style.display = 'block';
     newsList.innerHTML = '<h3>読み込み中...</h3>';
     status.textContent = `${select.options[select.selectedIndex].text} を取得中...`;
@@ -275,9 +269,12 @@ async function fetchAndReadNews() {
         
         if (data.status === 'ok') {
             renderNews(data.items);
-            // 読み上げ開始（callbackとして次へ進む処理を渡す）
-            startVoiceReport(data.feed.title, data.items, onSourceFinished);
-            status.textContent = "読み上げ中...";
+
+            // 【重要】少しだけ（100ms）待ってから読み上げを開始すると2回目も安定します
+            setTimeout(() => {
+                startVoiceReport(data.feed.title, data.items, onSourceFinished);
+                status.textContent = "読み上げ中...";
+            }, 100);
         } else {
             status.textContent = "取得エラー。次へ進みます。";
             if(isContinuousMode) onSourceFinished();
@@ -315,9 +312,13 @@ function startVoiceReport(sourceName, items, callback) {
     let currentItemIndex = -1; // -1はソース名の読み上げ用
 
     function readNext() {
-        // 画面オフ対策：常にオーディオを再生状態に
-        dummyAudio.play().catch(() => {});
 
+        // 停止ボタンが押されていたら中断
+        if (!synth.speaking && currentItemIndex !== -1 && !isContinuousMode) return;
+
+        // オーディオの生存確認
+        if (dummyAudio.paused) dummyAudio.play().catch(() => {});
+        
         let text = "";
         if (currentItemIndex === -1) {
             text = `${sourceName}のニュースをお伝えします。`;
@@ -346,6 +347,13 @@ function startVoiceReport(sourceName, items, callback) {
             setTimeout(readNext, 1000);
         };
 
+        uttr.onerror = (event) => {
+            console.error("Speech error:", event);
+            // エラー時も止まらないように次へ
+            currentItemIndex++;
+            setTimeout(readNext, 500);
+        };
+        
         synth.speak(uttr);
     }
 
@@ -356,13 +364,22 @@ function startVoiceReport(sourceName, items, callback) {
 // stopNews も修正（連続モードを解除）
 function stopNews() {
     isContinuousMode = false;
+    
+    // 1. 全ての音声合成を強制停止
     synth.cancel();
+    
+    // 2. オーディオも停止
+    if (dummyAudio) {
+        dummyAudio.pause();
+        dummyAudio.currentTime = 0;
+    }
 
-    // オーディオを停止して巻き戻す
-    dummyAudio.pause();
-    dummyAudio.currentTime = 0;
+    // 3. WakeLockがあれば解除
+    if (wakeLock) {
+        wakeLock.release().then(() => { wakeLock = null; });
+    }
 
-    status.textContent = "";
+    status.textContent = "停止しました";
 }
 
 // 初期化処理をまとめる
