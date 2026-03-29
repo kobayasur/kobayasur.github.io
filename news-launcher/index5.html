@@ -56,7 +56,7 @@
 
     <div id="newsList"></div>
 
-<audio id="dummy-audio" loop src="data:audio/wav;base64,UklGRi6HAgBXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0Y crappyAptBZm9ybWF0IEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBA=="></audio>
+<audio id="dummy-audio" loop src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA="></audio>
 
     <script>
         const defaultPwas = [
@@ -75,7 +75,7 @@
         const loader = document.getElementById('loader');
 
 // JSの冒頭で音量を設定（耳には聞こえないレベル）
-    document.getElementById('dummy-audio').volume = 0.1;
+    document.getElementById('dummy-audio').volume = 1.0;
 
             function renderNews(items) {
             newsList.innerHTML = items.map(item => {
@@ -202,11 +202,21 @@ async function readAllNews() {
 }
 
 const dummyAudio = document.getElementById('dummy-audio');
+let wakeLock = null;
 
 // --- fetchAndReadNews を少し修正（連続再生対応） ---
 async function fetchAndReadNews() {
 
-// 1. 無音再生を開始
+    // スリープ防止をリクエスト
+    if ('wakeLock' in navigator) {
+        try {
+            wakeLock = await navigator.wakeLock.request('screen');
+        } catch (err) {
+            console.log("WakeLock error:", err);
+        }
+    }
+    
+    // 1. 無音再生を開始
     try {
         await dummyAudio.play();
     } catch (e) {
@@ -300,45 +310,13 @@ function onSourceFinished() {
     }
 }
 
-// --- startVoiceReport に終了検知を追加 ---
-function startVoiceReport0(sourceName, items, callback) {
-    const reportItems = items.slice(0, 6); // 連続再生なので各サイト3件ずつに絞るとテンポが良いです
-    
-    speak(`${sourceName}のニュースです。`);
-    
-    reportItems.forEach((item, index) => {
-
-        // 画面がオフでもオーディオを動かし続ける
-        if (dummyAudio.paused) {
-            dummyAudio.play().catch(() => {});
-        }
-        
-        speak(`第${index + 1}。${item.title}。`);
-        const bodyText = item.description.replace(/<[^>]*>?/gm, '').trim();
-        if (bodyText) {
-            const firstSentence = bodyText.split(/[。]/)[0];
-            speak(firstSentence + "。");
-        }
-    });
-
-    // 最後の発話に終了時のコールバックを仕込む
-    const endMsg = new SpeechSynthesisUtterance("。");
-    endMsg.volume = 0;
-    endMsg.onend = () => {
-        if (callback) callback();
-    };
-    synth.speak(endMsg);
-}
-
 function startVoiceReport(sourceName, items, callback) {
-    const reportItems = items.slice(0, 3); // 各サイト3件
+    const reportItems = items.slice(0, 6); // 各サイト3件
     let currentItemIndex = -1; // -1はソース名の読み上げ用
 
     function readNext() {
-        // 画面がオフでもオーディオを動かし続ける
-        if (dummyAudio.paused) {
-            dummyAudio.play().catch(() => {});
-        }
+        // 画面オフ対策：常にオーディオを再生状態に
+        dummyAudio.play().catch(() => {});
 
         let text = "";
         if (currentItemIndex === -1) {
@@ -365,7 +343,7 @@ function startVoiceReport(sourceName, items, callback) {
         uttr.onend = () => {
             currentItemIndex++;
             // 0.5秒の「溜め」を作ってから次へ（OSのスリープ割り込みを防ぐ）
-            setTimeout(readNext, 500);
+            setTimeout(readNext, 1000);
         };
 
         synth.speak(uttr);
