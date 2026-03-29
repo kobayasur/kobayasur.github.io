@@ -296,7 +296,7 @@ function onSourceFinished() {
 }
 
 // --- startVoiceReport に終了検知を追加 ---
-function startVoiceReport(sourceName, items, callback) {
+function startVoiceReport0(sourceName, items, callback) {
     const reportItems = items.slice(0, 6); // 連続再生なので各サイト3件ずつに絞るとテンポが良いです
     
     speak(`${sourceName}のニュースです。`);
@@ -323,6 +323,51 @@ function startVoiceReport(sourceName, items, callback) {
         if (callback) callback();
     };
     synth.speak(endMsg);
+}
+
+function startVoiceReport(sourceName, items, callback) {
+    const reportItems = items.slice(0, 3); // 各サイト3件
+    let currentItemIndex = -1; // -1はソース名の読み上げ用
+
+    function readNext() {
+        // 画面がオフでもオーディオを動かし続ける
+        if (dummyAudio.paused) {
+            dummyAudio.play().catch(() => {});
+        }
+
+        let text = "";
+        if (currentItemIndex === -1) {
+            text = `${sourceName}のニュースをお伝えします。`;
+        } else if (currentItemIndex < reportItems.length) {
+            const item = reportItems[currentItemIndex];
+            text = `第${currentItemIndex + 1}。${item.title}。${item.description.replace(/<[^>]*>?/gm, '').split(/[。]/)[0]}。`;
+        } else {
+            // このサイトの全記事終了
+            if (callback) callback();
+            return;
+        }
+
+        const uttr = new SpeechSynthesisUtterance(text);
+        
+        // 音声設定の適用
+        const selectedName = voiceSelect.value;
+        const voice = allVoices.find(v => v.name === selectedName);
+        if (voice) uttr.voice = voice;
+        uttr.lang = 'ja-JP';
+        uttr.rate = 0.95;
+
+        // 読み終わったら「次の記事」を呼ぶ（これが重要！）
+        uttr.onend = () => {
+            currentItemIndex++;
+            // 0.5秒の「溜め」を作ってから次へ（OSのスリープ割り込みを防ぐ）
+            setTimeout(readNext, 500);
+        };
+
+        synth.speak(uttr);
+    }
+
+    // 読み上げ開始
+    readNext();
 }
 
 // stopNews も修正（連続モードを解除）
