@@ -307,6 +307,9 @@ function onSourceFinished() {
     }
 }
 
+// 関数の外側（スコープの外）で保持するための変数を定義
+let activeUtterance = null;
+
 function startVoiceReport(sourceName, items, callback) {
     const reportItems = items.slice(0, 6); // 各サイト3件
     let currentItemIndex = -1; // -1はソース名の読み上げ用
@@ -331,30 +334,30 @@ function startVoiceReport(sourceName, items, callback) {
             return;
         }
 
-        const uttr = new SpeechSynthesisUtterance(text);
+        activeUtterance = new SpeechSynthesisUtterance(text);
         
         // 音声設定の適用
         const selectedName = voiceSelect.value;
         const voice = allVoices.find(v => v.name === selectedName);
-        if (voice) uttr.voice = voice;
-        uttr.lang = 'ja-JP';
-        uttr.rate = 0.95;
+        if (voice) activeUtterance.voice = voice;
+        activeUtterance.lang = 'ja-JP';
+        activeUtterance.rate = 0.95;
 
         // 読み終わったら「次の記事」を呼ぶ（これが重要！）
-        uttr.onend = () => {
+        activeUtterance.onend = () => {
             currentItemIndex++;
             // 0.5秒の「溜め」を作ってから次へ（OSのスリープ割り込みを防ぐ）
             setTimeout(readNext, 1000);
         };
 
-        uttr.onerror = (event) => {
+        activeUtterance.onerror = (event) => {
             console.error("Speech error:", event);
             // エラー時も止まらないように次へ
             currentItemIndex++;
             setTimeout(readNext, 500);
         };
         
-        synth.speak(uttr);
+        synth.speak(activeUtterance);
     }
 
     // 読み上げ開始
