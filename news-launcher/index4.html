@@ -302,6 +302,12 @@ function startVoiceReport(sourceName, items, callback) {
     speak(`${sourceName}のニュースです。`);
     
     reportItems.forEach((item, index) => {
+
+        // 画面がオフでもオーディオを動かし続ける
+        if (dummyAudio.paused) {
+            dummyAudio.play().catch(() => {});
+        }
+        
         speak(`第${index + 1}。${item.title}。`);
         const bodyText = item.description.replace(/<[^>]*>?/gm, '').trim();
         if (bodyText) {
