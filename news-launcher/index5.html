@@ -210,7 +210,7 @@ async function fetchAndReadNews() {
     // スリープ防止をリクエスト
     if ('wakeLock' in navigator) {
         try {
-            wakeLock = await navigator.wakeLock.request('screen');
+            //wakeLock = await navigator.wakeLock.request('screen');
         } catch (err) {
             console.log("WakeLock error:", err);
         }
