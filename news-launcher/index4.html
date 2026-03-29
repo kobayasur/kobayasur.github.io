@@ -194,15 +194,34 @@ const dummyAudio = document.getElementById('dummy-audio');
 // --- fetchAndReadNews を少し修正（連続再生対応） ---
 async function fetchAndReadNews() {
 
-    // ユーザー操作（ボタンクリック）の直後に再生を開始する必要がある（ブラウザ制限回避のため）
-    dummyAudio.play().catch(e => console.log("Audio play blocked:", e));
+// 1. 無音再生を開始
+    try {
+        await dummyAudio.play();
+    } catch (e) {
+        console.log("再生ブロック解除のためユーザー操作が必要です", e);
+    }
 
+    // 2. Media Session API でロック画面に情報を登録
     if ('mediaSession' in navigator) {
-    navigator.mediaSession.metadata = new MediaMetadata({
-        title: 'ニュース連続読み上げ中',
-        artist: 'PWA News Reader',
-        album: 'Background Mode'
-    });
+        const select = document.getElementById('pwa-select');
+        const currentSiteName = select.options[select.selectedIndex].text;
+
+        navigator.mediaSession.metadata = new MediaMetadata({
+            title: 'ニュース連続読み上げ中',
+            artist: currentSiteName,
+            album: 'PWA News Reader',
+            artwork: [
+                { src: 'https://via.placeholder.com/512', sizes: '512x512', type: 'image/png' }
+            ]
+        });
+
+        // ロック画面のボタン（再生・停止）とアプリの動作を紐付ける
+        navigator.mediaSession.setActionHandler('pause', () => {
+            stopNews();
+        });
+        navigator.mediaSession.setActionHandler('stop', () => {
+            stopNews();
+        });
     }
 
     const select = document.getElementById('pwa-select');
