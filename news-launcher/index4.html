@@ -196,7 +196,15 @@ async function fetchAndReadNews() {
 
     // ユーザー操作（ボタンクリック）の直後に再生を開始する必要がある（ブラウザ制限回避のため）
     dummyAudio.play().catch(e => console.log("Audio play blocked:", e));
-    
+
+    if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+        title: 'ニュース連続読み上げ中',
+        artist: 'PWA News Reader',
+        album: 'Background Mode'
+    });
+    }
+
     const select = document.getElementById('pwa-select');
     const url = select.value;
     if (!url) return;
