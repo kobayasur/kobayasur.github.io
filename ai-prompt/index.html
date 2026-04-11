@@ -1,140 +1,103 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini Image Prompter (LocalSave)</title>
-    <style>
-        body { font-family: sans-serif; background: #f0f2f5; padding: 20px; display: flex; flex-direction: column; align-items: center; }
-        .container { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 100%; max-width: 500px; }
-        h1 { font-size: 1.2rem; text-align: center; color: #333; margin-bottom: 20px; }
-        
-        /* APIキー設定エリア */
-        .api-config { background: #fff3cd; padding: 10px; border-radius: 8px; margin-bottom: 20px; font-size: 0.85rem; border: 1px solid #ffeeba; }
-        input[type="password"] { width: calc(100% - 80px); padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
-        .save-btn { padding: 8px 10px; cursor: pointer; background: #856404; color: white; border: none; border-radius: 4px; }
-
-        textarea { width: 100%; height: 100px; padding: 10px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; resize: none; margin-bottom: 15px; }
-        .main-btn { width: 100%; padding: 15px; background: #007bff; color: white; border: none; border-radius: 8px; font-size: 1.1rem; cursor: pointer; }
-        .main-btn:disabled { background: #ccc; }
-        
-        .result-box { margin-top: 20px; padding: 15px; background: #e9ecef; border-radius: 8px; width: 100%; box-sizing: border-box; min-height: 80px; white-space: pre-wrap; position: relative;}
-        .loader { display: none; text-align: center; margin-top: 10px; color: #007bff; font-weight: bold; }
-        #copyBtn { position: absolute; top: 8px; right: 8px; padding: 5px 10px; font-size: 0.7rem; background: #6c757d; color: white; border: none; border-radius: 4px; display: none; cursor: pointer;}
-    </style>
+  <meta charset="UTF-8">
+  <title>Ollama PWA Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="manifest" href="data:application/json,{'name':'OllamaChat','short_name':'Chat','start_url':'.','display':'standalone'}">
+  <style>
+    body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+    textarea { width: 100%; height: 100px; margin-bottom: 10px; }
+    input { width: 100%; margin-bottom: 10px; padding: 5px; }
+    #output { background: #f0f0f0; padding: 15px; border-radius: 5px; min-height: 50px; }
+    .config { border-bottom: 1px solid #ccc; margin-bottom: 20px; padding-bottom: 10px; background: #fafafa; padding: 10px; border-radius: 5px; }
+    label { font-weight: bold; font-size: 0.9em; }
+    .system-area { height: 80px; font-size: 0.85em; }
+  </style>
 </head>
 <body>
 
-    <div class="container">
-        <h1>画像プロンプト生成 (日本語)</h1>
+  <div class="config">
+    <label>Ollama URL:</label>
+    <input type="text" id="tunnelUrl" placeholder="https://xxx.trycloudflare.com" onchange="saveConfig()">
+    
+    <label>役割指示 (System Prompt):</label>
+    <textarea id="systemPrompt" class="system-area" placeholder="あなたはプロンプト専門家です..." onchange="saveConfig()"></textarea>
+    <small>※URLと役割は自動で保存されます</small>
+  </div>
 
-        <div class="api-config">
-            <strong>API Key設定:</strong><br>
-            <input type="password" id="apiKeyInput" placeholder="Gemini API Keyを入力">
-            <button class="save-btn" id="saveKeyBtn">保存</button>
-            <p style="margin: 5px 0 0 0; font-size: 0.7rem; color: #856404;">※キーはブラウザにのみ保存されます</p>
-        </div>
-        
-        <textarea id="ideaInput" placeholder="例：ネコが宇宙でラーメンを食べている、サイバーパンク風、油絵"></textarea>
-        
-        <button id="generateBtn" class="main-btn">プロンプトを作成</button>
-        
-        <div class="loader" id="loader">Geminiが作成中...</div>
-        
-        <div class="result-box">
-            <button id="copyBtn">コピー</button>
-            <span id="resultText">ここに詳細な日本語プロンプトが表示されます</span>
-        </div>
-    </div>
+  <h2>Ollama Chat</h2>
+  <textarea id="prompt" placeholder="お題を入力..."></textarea>
+  <button onclick="chat()" id="sendBtn">送信</button>
 
-    <script type="module">
-        const ideaInput = document.getElementById('ideaInput');
-        const generateBtn = document.getElementById('generateBtn');
-        const resultText = document.getElementById('resultText');
-        const loader = document.getElementById('loader');
-        const copyBtn = document.getElementById('copyBtn');
-        const apiKeyInput = document.getElementById('apiKeyInput');
-        const saveKeyBtn = document.getElementById('saveKeyBtn');
+  <div id="output" style="white-space: pre-wrap; margin-top: 20px;">ここに回答が表示されます</div>
 
-        // 1. ローカルストレージからキーを読み込む
-        let savedKey = localStorage.getItem('GEMINI_API_KEY');
-        if (savedKey) {
-            apiKeyInput.value = savedKey;
+  <script>
+    // ページ読み込み時に保存された設定を復元
+    window.onload = () => {
+      document.getElementById('tunnelUrl').value = localStorage.getItem('OLLAMA_TUNNEL_URL') || "";
+      document.getElementById('systemPrompt').value = localStorage.getItem('OLLAMA_SYSTEM_PROMPT') || "";
+    };
+
+    // 設定をLocalStorageに保存
+    function saveConfig() {
+      const url = document.getElementById('tunnelUrl').value.replace(/\/$/, "");
+      const system = document.getElementById('systemPrompt').value;
+      localStorage.setItem('OLLAMA_TUNNEL_URL', url);
+      localStorage.setItem('OLLAMA_SYSTEM_PROMPT', system);
+      console.log("設定を保存しました");
+    }
+
+    async function chat() {
+      const promptField = document.getElementById('prompt');
+      const output = document.getElementById('output');
+      const tunnelUrl = document.getElementById('tunnelUrl').value;
+      const systemPrompt = document.getElementById('systemPrompt').value;
+      const sendBtn = document.getElementById('sendBtn');
+
+      if (!tunnelUrl) { alert("URLを入力してください"); return; }
+
+      const userMessage = promptField.value;
+      // 役割指示とユーザー入力を合体
+      const fullPrompt = systemPrompt ? `${systemPrompt}\n\nお題: ${userMessage}` : userMessage;
+
+      output.innerText = "考え中...";
+      sendBtn.disabled = true;
+
+      // タイムアウト設定 (60秒)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+      try {
+        const response = await fetch(`${tunnelUrl}/api/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: "hf.co/mmnga/Llama-3.1-Swallow-8B-Instruct-v0.5-gguf",
+            prompt: fullPrompt,
+            stream: false
+          })
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) throw new Error(`HTTPエラー: ${response.status}`);
+
+        const data = await response.json();
+        output.innerText = data.response || "返答が空でした";
+        
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          output.innerText = "エラー: 60秒経過しても応答がありません。PC側の負荷を確認してください。";
+        } else {
+          output.innerText = "エラーが発生しました:\n" + e.message;
         }
-
-        // キーを保存する処理
-        saveKeyBtn.addEventListener('click', () => {
-            const key = apiKeyInput.value.trim();
-            if (key) {
-                localStorage.setItem('GEMINI_API_KEY', key);
-                alert("APIキーを保存しました。");
-            }
-        });
-
-        // Geminiへの役割指示（日本語出力用）
-        const SYSTEM_PROMPT = `
-あなたは画像生成AIのプロンプト専門家です。
-ユーザーのアイデアを元に、画像生成AI（DALL-E 3等）にそのまま入力できる、具体的で芸術的な「日本語のプロンプト」を作成してください。
-以下の要素を盛り込んでください：
-- 具体的な被写体の動作、表情
-- 背景の詳細、時間帯、ライティング
-- 画風（写実的、アニメ、水彩画、3Dレンダリングなど）
-- カメラの画角や雰囲気
-
-出力は「プロンプトの内容のみ」とし、余計な挨拶や解説は一切省いてください。プロンプトは50文字程度で。
-`;
-
-        generateBtn.addEventListener('click', async () => {
-            const currentKey = apiKeyInput.value.trim();
-            const userIdea = ideaInput.value.trim();
-
-            if (!currentKey) {
-                alert("先にAPIキーを入力して保存してください。");
-                return;
-            }
-            if (!userIdea) return;
-
-            resultText.innerText = "";
-            loader.style.display = "block";
-            generateBtn.disabled = true;
-            copyBtn.style.display = "none";
-
-            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${currentKey}`;
-
-            try {
-                const response = await fetch(API_URL, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        contents: [{
-                            parts: [{ text: `${SYSTEM_PROMPT}\n\nお題: ${userIdea}` }]
-                        }]
-                    })
-                });
-
-                const data = await response.json();
-                
-                if (data.candidates && data.candidates[0].content.parts[0].text) {
-                    const res = data.candidates[0].content.parts[0].text.trim();
-                    resultText.innerText = res;
-                    copyBtn.style.display = "block";
-                } else {
-                    resultText.innerText = "エラー：プロンプトを生成できませんでした。キーが正しいか確認してください。";
-                }
-            } catch (error) {
-                resultText.innerText = "接続エラーが発生しました。";
-            } finally {
-                loader.style.display = "none";
-                generateBtn.disabled = false;
-            }
-        });
-
-        copyBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(resultText.innerText).then(() => {
-                copyBtn.innerText = "完了！";
-                setTimeout(() => copyBtn.innerText = "コピー", 2000);
-            });
-        });
-    </script>
+        console.error(e);
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+  </script>
 </body>
 </html>
