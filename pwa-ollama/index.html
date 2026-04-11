@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Ollama PWA Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="manifest" href="data:application/json,{'name':'OllamaChat','short_name':'Chat','start_url':'.','display':'standalone'}">
+  <style>
+    body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+    textarea { width: 100%; height: 100px; margin-bottom: 10px; }
+    input { width: 100%; margin-bottom: 10px; padding: 5px; }
+    #output { background: #f0f0f0; padding: 15px; border-radius: 5px; min-height: 50px; }
+    .config { border-bottom: 1px solid #ccc; margin-bottom: 20px; padding-bottom: 10px; }
+  </style>
+</head>
+<body>
+
+  <div class="config">
+    <label>URL:</label>
+    <input type="text" id="tunnelUrl" placeholder="https://xxx.trycloudflare.com" onchange="saveUrl()">
+    <small>※URLを入力すると自動で保存されます</small>
+  </div>
+
+  <h2>Ollama Chat</h2>
+  <textarea id="prompt" placeholder="メッセージを入力..."></textarea>
+  <button onclick="chat()" id="sendBtn">送信</button>
+
+  <div id="output" style="white-space: pre-wrap; margin-top: 20px;">ここに回答が表示されます</div>
+
+  <script>
+    // ページ読み込み時にLocalStorageからURLを復元
+    window.onload = () => {
+      const savedUrl = localStorage.getItem('OLLAMA_TUNNEL_URL');
+      if (savedUrl) {
+        document.getElementById('tunnelUrl').value = savedUrl;
+      }
+    };
+
+    // URLをLocalStorageに保存する関数
+    function saveUrl() {
+      const url = document.getElementById('tunnelUrl').value.replace(/\/$/, ""); // 末尾のスラッシュを削除
+      localStorage.setItem('OLLAMA_TUNNEL_URL', url);
+      console.log("URLを保存しました:", url);
+    }
+
+    async function chat() {
+      const promptField = document.getElementById('prompt');
+      const output = document.getElementById('output');
+      const tunnelUrl = document.getElementById('tunnelUrl').value;
+      const sendBtn = document.getElementById('sendBtn');
+
+      if (!tunnelUrl) {
+        alert("URLを入力してください");
+        return;
+      }
+
+      const prompt = promptField.value;
+      output.innerText = "考え中...";
+      sendBtn.disabled = true;
+
+      try {
+        const response = await fetch(`${tunnelUrl}/api/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "hf.co/mmnga/Llama-3.1-Swallow-8B-Instruct-v0.5-gguf",
+            prompt: prompt,
+            stream: false // ストリームをオフに設定
+          })
+        });
+
+        if (!response.ok) throw new Error(`HTTPエラー: ${response.status}`);
+
+        // JSON辞書を取得
+        const data = await response.json();
+        
+        // 辞書からテキスト（responseフィールド）を取り出す
+        output.innerText = data.response || "返答が空でした";
+        
+      } catch (e) {
+        output.innerText = "エラーが発生しました:\n" + e.message;
+        console.error("Detail:", e);
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
