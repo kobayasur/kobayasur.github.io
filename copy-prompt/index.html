@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prompt Stocker Lite</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .pinned { background-color: #fffbeb; border-left: 4px solid #f59e0b; }
+        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen pb-10">
+
+    <div class="max-w-md mx-auto bg-white min-h-screen shadow-lg flex flex-col">
+        <header class="p-4 border-b bg-white sticky top-0 z-10">
+            <div class="flex justify-between items-center mb-4">
+                <h1 class="text-xl font-bold text-indigo-600">Prompt Stocker</h1>
+                <div class="flex gap-2">
+                    <button onclick="exportData()" class="px-3 py-1 bg-gray-100 text-gray-600 rounded text-xs font-medium">出力</button>
+                    <label class="px-3 py-1 bg-gray-100 text-gray-600 rounded text-xs font-medium cursor-pointer">
+                        復元 <input type="file" onchange="importData(event)" class="hidden">
+                    </label>
+                </div>
+            </div>
+            <input type="text" id="searchInput" oninput="renderList()" placeholder="検索..." 
+                class="w-full border p-2 rounded-full px-4 text-sm bg-gray-50 focus:ring-2 focus:ring-indigo-400 outline-none">
+        </header>
+
+        <main class="p-4 flex-grow">
+            <div class="bg-indigo-50 p-4 rounded-xl mb-6 border border-indigo-100">
+                <input id="title" type="text" placeholder="タイトル" class="w-full border p-2 rounded mb-2 text-sm">
+                <textarea id="content" placeholder="プロンプト内容" class="w-full border p-2 rounded h-24 text-sm mb-2"></textarea>
+                <input id="tags" type="text" placeholder="タグ (カンマ区切り)" class="w-full border p-2 rounded mb-3 text-sm">
+                <button onclick="addPrompt()" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold active:scale-95 transition">保存する</button>
+            </div>
+            <div id="promptList" class="space-y-4"></div>
+        </main>
+    </div>
+
+    <script>
+        // --- 1. IndexedDB 直接操作 (ライブラリなし) ---
+        const DB_NAME = "PromptDB_v2";
+        const STORE_NAME = "prompts";
+        let db;
+
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = (e) => {
+            db = e.target.result;
+            db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true });
+        };
+        request.onsuccess = (e) => {
+            db = e.target.result;
+            renderList();
+        };
+        request.onerror = () => alert("DBの起動に失敗しました。シークレットモードを解除してください。");
+
+        // --- 2. データ追加 ---
+        function addPrompt() {
+            const title = document.getElementById('title').value;
+            const content = document.getElementById('content').value;
+            const tags = document.getElementById('tags').value.split(',').map(t => t.trim()).filter(t => t);
+
+            if (!title || !content) return alert("入力してください");
+
+            const transaction = db.transaction([STORE_NAME], "readwrite");
+            const store = transaction.objectStore(STORE_NAME);
+            store.add({ title, content, tags, isPinned: 0, updatedAt: Date.now() });
+
+            transaction.oncomplete = () => {
+                document.getElementById('title').value = "";
+                document.getElementById('content').value = "";
+                document.getElementById('tags').value = "";
+                renderList();
+            };
+        }
+
+        // --- 3. リスト表示 ---
+        function renderList() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const transaction = db.transaction([STORE_NAME], "readonly");
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.getAll();
+
+            request.onsuccess = () => {
+                let prompts = request.result;
+                if (searchTerm) {
+                    prompts = prompts.filter(p => p.title.toLowerCase().includes(searchTerm) || p.content.toLowerCase().includes(searchTerm));
+                }
+                // ソート
+                prompts.sort((a, b) => (b.isPinned - a.isPinned) || (b.updatedAt - a.updatedAt));
+
+                const container = document.getElementById('promptList');
+                container.innerHTML = "";
+                prompts.forEach(p => {
+                    const card = document.createElement('div');
+                    card.className = `p-4 border rounded-xl shadow-sm ${p.isPinned ? 'pinned' : 'bg-white'}`;
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start mb-1 text-sm">
+                            <h3 class="font-bold">${p.title}</h3>
+                            <input type="checkbox" ${p.isPinned ? 'checked' : ''} onchange="togglePin(${p.id}, ${p.isPinned})">
+                        </div>
+                        <p class="text-xs text-gray-600 line-clamp-2 mb-3 whitespace-pre-wrap">${p.content}</p>
+                        <div class="flex gap-2">
+                            <button onclick="copyToClipboard(this, \`${p.content.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)" 
+                                class="flex-grow bg-green-500 text-white py-2 rounded text-xs font-bold">コピー</button>
+                            <button onclick="deletePrompt(${p.id})" class="text-red-400 text-xs px-2">削除</button>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+            };
+        }
+
+        // --- 4. コピー & ピン留め & 削除 ---
+        function copyToClipboard(btn, text) {
+            const el = document.createElement('textarea');
+            el.value = text;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            
+            const oldText = btn.innerText;
+            btn.innerText = "完了！";
+            setTimeout(() => btn.innerText = oldText, 1000);
+        }
+
+        function togglePin(id, current) {
+            const transaction = db.transaction([STORE_NAME], "readwrite");
+            const store = transaction.objectStore(STORE_NAME);
+            store.get(id).onsuccess = (e) => {
+                const data = e.target.result;
+                data.isPinned = current ? 0 : 1;
+                data.updatedAt = Date.now();
+                store.put(data).onsuccess = () => renderList();
+            };
+        }
+
+        function deletePrompt(id) {
+            if (!confirm("削除しますか？")) return;
+            const transaction = db.transaction([STORE_NAME], "readwrite");
+            store = transaction.objectStore(STORE_NAME);
+            store.delete(id).onsuccess = () => renderList();
+        }
+
+        function exportData() {
+            db.transaction([STORE_NAME], "readonly").objectStore(STORE_NAME).getAll().onsuccess = (e) => {
+                const blob = new Blob([JSON.stringify(e.target.result)], {type: "application/json"});
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = "backup.json"; a.click();
+            };
+        }
+
+        function importData(event) {
+            const file = event.target.files[0];
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const data = JSON.parse(e.target.result);
+                const transaction = db.transaction([STORE_NAME], "readwrite");
+                const store = transaction.objectStore(STORE_NAME);
+                data.forEach(item => store.put(item));
+                transaction.oncomplete = () => renderList();
+            };
+            reader.readAsText(file);
+        }
+    </script>
+</body>
+</html>
