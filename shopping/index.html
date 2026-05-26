@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>テキスト合計計算ツール</title>
+    
+    <link rel="manifest" href="data:application/manifest+json,{%22name%22:%22テキスト合計計算%22,%22short_name%22:%22合計計算%22,%22start_url%22:%22.%22,%22display%22:%22standalone%22,%22background_color%22:%22%23f3f4f6%22,%22theme_color%22:%22%232563eb%22,%22icons%22:[{%22src%22:%22https://cdn-icons-png.flaticon.com/512/2344/2344147.png%22,%22sizes%22:%22512x512%22,%22type%22:%22image/png%22}]}">
+    <meta name="theme-color" content="#2563eb">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="bg-white p-6 rounded-2xl shadow-lg w-full max-w-md">
+        <h1 class="text-xl font-bold text-gray-800 mb-4 text-center">💰 テキスト合計計算 PWA</h1>
+        
+        <p class="text-xs text-gray-500 mb-2">「商品名 金額」のテキストを貼り付けてください（半角・全角スペース、タブ対応）。</p>
+        
+        <textarea id="inputText" rows="16" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none placeholder-gray-400" placeholder="のんのこ 2000&#10;佐賀びより 3500&#10;ぱんの耳 89"></textarea>
+        
+        <div class="mt-4 bg-blue-50 p-4 rounded-xl flex justify-between items-center">
+            <span class="text-gray-700 font-medium">合計金額:</span>
+            <span id="totalAmount" class="text-2xl font-black text-blue-600">¥0</span>
+        </div>
+    </div>
+
+    <script>
+        const inputText = document.getElementById('inputText');
+        const totalAmount = document.getElementById('totalAmount');
+
+        // 入力があるたびにリアルタイムで計算
+        inputText.addEventListener('input', () => {
+            const text = inputText.value;
+            const lines = text.split('\n');
+            let sum = 0;
+
+            lines.forEach(line => {
+                // 行末の空白をトリムし、全角スペース・タブを半角スペースに統一
+                const cleanLine = line.trim().replace(/[\u3000\t]/g, ' ');
+                
+                // 後ろから最初のスペースを探して、そこで商品名と金額に分割する
+                const lastSpaceIndex = cleanLine.lastIndexOf(' ');
+                
+                if (lastSpaceIndex !== -1) {
+                    const priceStr = cleanLine.substring(lastSpaceIndex + 1);
+                    // 数字以外を除去して数値化
+                    const price = parseInt(priceStr.replace(/[^0-9]/g, ''), 10);
+                    
+                    if (!isNaN(price)) {
+                        sum += price;
+                    }
+                }
+            });
+
+            // 3桁区切りのカンマを入れて表示
+            totalAmount.textContent = `¥${sum.toLocaleString()}`;
+        });
+
+        // PWA用の最低限のサービスワーカー登録（インストール可能にするため）
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                const blob = new Blob([`
+                    self.addEventListener('fetch', (e) => {
+                        // オフラインでも動くようにキャッシュを返す最低限のコード
+                        e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+                    });
+                `], { type: 'text/javascript' });
+                const url = URL.createObjectURL(blob);
+                navigator.serviceWorker.register(url);
+            });
+        }
+    </script>
+</body>
+</html>
