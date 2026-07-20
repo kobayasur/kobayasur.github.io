@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>スマホ対応 スライドショー</title>
+  
+  <!-- マニフェストファイルをデータURLでインライン化 -->
+  <link rel="manifest" href="data:application/json,{%22name%22:%22スマホ対応%20スライドショー%22,%22short_name%22:%22スライド%22,%22start_url%22:%22index.html%22,%22display%22:%22standalone%22,%22background_color%22:%22%23111111%22,%22theme_color%22:%22%23111111%22,%22icons%22:[{%22src%22:%22https://via.placeholder.com/192%22,%22sizes%22:%22192x192%22,%22type%22:%22image/png%22}]}@">
+  
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background-color: #111;
+      color: #fff;
+      font-family: sans-serif;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      height: 100dvh;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #controls {
+      background: rgba(0, 0, 0, 0.9);
+      padding: 10px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      z-index: 10;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+    #viewer {
+      flex: 1;
+      min-height: 0;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      background-color: #000;
+      overflow: hidden;
+      touch-action: none; /* JSでタッチ全全般を制御 */
+    }
+    img {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      display: none;
+      transform-origin: center center;
+      will-change: transform;
+    }
+    img.active {
+      display: block;
+    }
+    button, input, select {
+      padding: 10px 12px;
+      background: #333;
+      color: #fff;
+      border: 1px solid #555;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.3; }
+    input[type="number"] { width: 45px; text-align: center; }
+    
+    .file-label {
+      background: #007aff;
+      border: none;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+      color: #fff;
+      cursor: pointer;
+    }
+    input[type="file"] { display: none; }
+
+    .btn-group {
+      display: flex;
+      gap: 6px;
+    }
+    .btn-action {
+      background: #444;
+      font-weight: bold;
+    }
+
+    #status {
+      font-size: 13px;
+      color: #ddd;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+    .filename {
+      color: #4da6ff;
+      font-weight: bold;
+      margin-left: 6px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="controls">
+    <label class="file-label">
+      📁 画像を選択
+      <input type="file" id="input-dir" multiple accept="image/*">
+    </label>
+    
+    <label><input type="number" id="input-interval" value="3" min="1">秒</label>
+    
+    <select id="select-order">
+      <option value="name">名前順</option>
+      <option value="shuffle">ランダム</option>
+    </select>
+
+    <button id="btn-play" disabled>▶ 再生</button>
+
+    <div class="btn-group">
+      <button id="btn-prev" class="btn-action" disabled>◀</button>
+      <button id="btn-next" class="btn-action" disabled>▶</button>
+      <button id="btn-share" class="btn-action" disabled>🔗 共有</button>
+    </div>
+
+    <span id="status">未選択</span>
+  </div>
+
+  <div id="viewer">
+    <img id="slideshow-img" src="" alt="スライドショー画像">
+  </div>
+
+  <script>
+    // --------------------------------------------------
+    // 1. PWA用 サービスワーカー (v5)
+    // --------------------------------------------------
+    if ('serviceWorker' in navigator) {
+      const swCode = `
+        const CACHE_NAME = 'inline-v5';
+        self.addEventListener('install', (e) => self.skipWaiting());
+        self.addEventListener('fetch', (e) => {
+          if (e.request.mode === 'navigate') {
+            e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+          }
+        });
+      `;
+      const blob = new Blob([swCode], { type: 'application/javascript' });
+      navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(console.error);
+    }
+
+    // --------------------------------------------------
+    // 2. スライドショー 基本ロジック
+    // --------------------------------------------------
+    let imageFiles = [];
+    let displayFiles = [];
+    let currentIndex = 0;
+    let timer = null;
+
+    const inputDir = document.getElementById('input-dir');
+    const btnPlay = document.getElementById('btn-play');
+    const btnPrev = document.getElementById('btn-prev');
+    const btnNext = document.getElementById('btn-next');
+    const btnShare = document.getElementById('btn-share');
+    const inputInterval = document.getElementById('input-interval');
+    const selectOrder = document.getElementById('select-order');
+    const statusText = document.getElementById('status');
+    const imgElement = document.getElementById('slideshow-img');
+    const viewerElement = document.getElementById('viewer');
+
+    inputDir.addEventListener('change', (e) => {
+      imageFiles = Array.from(e.target.files).filter(file => file.type.startsWith('image/'));
+      if (imageFiles.length === 0) {
+        statusText.textContent = '画像がありません';
+        toggleButtons(true);
+        return;
+      }
+      toggleButtons(false);
+      currentIndex = 0;
+      updateOrder();
+      showImage();
+    });
+
+    function toggleButtons(disabled) {
+      btnPlay.disabled = disabled;
+      btnPrev.disabled = disabled;
+      btnNext.disabled = disabled;
+      btnShare.disabled = disabled;
+    }
+
+    function updateOrder() {
+      if (imageFiles.length === 0) return;
+      if (selectOrder.value === 'shuffle') {
+        displayFiles = [...imageFiles].sort(() => Math.random() - 0.5);
+      } else {
+        displayFiles = [...imageFiles].sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+      }
+    }
+
+    selectOrder.addEventListener('change', () => {
+      updateOrder();
+      currentIndex = 0;
+      showImage();
+    });
+
+    function showImage() {
+      if (displayFiles.length === 0) return;
+      const file = displayFiles[currentIndex];
+      if (imgElement.src) URL.revokeObjectURL(imgElement.src);
+      imgElement.src = URL.createObjectURL(file);
+      imgElement.classList.add('active');
+      statusText.innerHTML = `[${currentIndex + 1} / ${displayFiles.length}] <span class="filename">${file.name}</span>`;
+      
+      // 画像切り替え時にズームと位置をリセット
+      resetZoom();
+    }
+
+    function nextImage() {
+      if (displayFiles.length === 0) return;
+      currentIndex = (currentIndex + 1) % displayFiles.length;
+      showImage();
+    }
+
+    function prevImage() {
+      if (displayFiles.length === 0) return;
+      currentIndex = (currentIndex - 1 + displayFiles.length) % displayFiles.length;
+      showImage();
+    }
+
+    btnNext.addEventListener('click', nextImage);
+    btnPrev.addEventListener('click', prevImage);
+
+    btnPlay.addEventListener('click', () => {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+        btnPlay.textContent = '▶ 再生';
+      } else {
+        const intervalMs = parseInt(inputInterval.value, 10) * 1000;
+        btnPlay.textContent = '⏸ 停止';
+        nextImage();
+        timer = setInterval(nextImage, intervalMs);
+      }
+    });
+
+    btnShare.addEventListener('click', async () => {
+      if (displayFiles.length === 0) return;
+      const currentFile = displayFiles[currentIndex];
+      if (navigator.canShare && navigator.canShare({ files: [currentFile] })) {
+        try { await navigator.share({ files: [currentFile], title: currentFile.name }); } catch (err) {}
+      } else { alert('この環境は画像共有に対応していません。'); }
+    });
+
+    // --------------------------------------------------
+    // 3. ズーム・パン(移動)・スワイプの統合ジェスチャー制御
+    // --------------------------------------------------
+    let scale = 1;
+    let translateX = 0;
+    let translateY = 0;
+
+    let startTouches = [];
+    let initialPinchDistance = 0;
+    let initialScale = 1;
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let lastTapTime = 0;
+
+    function applyTransform() {
+      imgElement.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+    }
+
+    function resetZoom() {
+      scale = 1;
+      translateX = 0;
+      translateY = 0;
+      applyTransform();
+    }
+
+    // 2本指の距離を計算する関数
+    function getDistance(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    viewerElement.addEventListener('touchstart', (e) => {
+      startTouches = Array.from(e.touches);
+
+      if (e.touches.length === 1) {
+        // 1本指タッチ（スワイプまたはパン操作の準備）
+        touchStartX = e.touches[0].clientX - translateX;
+        touchStartY = e.touches[0].clientY - translateY;
+      } else if (e.touches.length === 2) {
+        // 2本指タッチ（ピンチズーム開始）
+        initialPinchDistance = getDistance(e.touches);
+        initialScale = scale;
+      }
+    }, { passive: true });
+
+    viewerElement.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 1) {
+        // 拡大している状態なら指に合わせてドラッグ移動（パン）
+        if (scale > 1) {
+          translateX = e.touches[0].clientX - touchStartX;
+          translateY = e.touches[0].clientY - touchStartY;
+          applyTransform();
+        }
+      } else if (e.touches.length === 2) {
+        // ピンチズーム実行
+        const currentDistance = getDistance(e.touches);
+        if (initialPinchDistance > 0) {
+          const pinchScale = currentDistance / initialPinchDistance;
+          // 拡大率を 1倍〜4倍 に制限
+          scale = Math.min(Math.max(initialScale * pinchScale, 1), 4);
+          
+          // 等倍に戻ったときは移動位置も初期化
+          if (scale === 1) {
+            translateX = 0;
+            translateY = 0;
+          }
+          applyTransform();
+        }
+      }
+    }, { passive: true });
+
+    viewerElement.addEventListener('touchend', (e) => {
+      const now = Date.now();
+
+      // 1指での操作終了時
+      if (startTouches.length === 1 && e.changedTouches.length === 1) {
+        const deltaX = e.changedTouches[0].clientX - (touchStartX + translateX);
+        const deltaY = e.changedTouches[0].clientY - (touchStartY + translateY);
+
+        // ダブルタップの検出 (300ms以内の連打)
+        if (now - lastTapTime < 300) {
+          if (scale > 1) {
+            resetZoom();
+          } else {
+            scale = 2.5; // ダブルタップで2.5倍拡大
+            applyTransform();
+          }
+          lastTapTime = 0;
+          return;
+        }
+        lastTapTime = now;
+
+        // 拡大中でない場合のみ左右スワイプでの「前へ/次へ」判定を行う
+        if (scale === 1) {
+          const swipeDistance = e.changedTouches[0].clientX - startTouches[0].clientX;
+          if (Math.abs(swipeDistance) > 50) {
+            if (swipeDistance > 0) {
+              prevImage(); // 右スワイプ -> 前へ
+            } else {
+              nextImage(); // 左スワイプ -> 次へ
+            }
+          } else if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {
+            // 単純タップでUIの開閉
+            if (displayFiles.length > 0) {
+              const controls = document.getElementById('controls');
+              controls.style.display = controls.style.display === 'none' ? 'flex' : 'none';
+            }
+          }
+        }
+      }
+      
+      startTouches = Array.from(e.touches);
+    });
+
+  </script>
+</body>
+</html>
