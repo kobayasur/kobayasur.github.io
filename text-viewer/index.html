@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PWA テキストビューア</title>
+  
+  <link rel="manifest" href="data:application/json,{%22name%22:%22PWA%20テキストビューア%22,%22short_name%22:%22テキスト%22,%22start_url%22:%22index.html%22,%22display%22:%22standalone%22,%22background_color%22:%22%23111111%22,%22theme_color%22:%22%23111111%22,%22icons%22:[{%22src%22:%22https://via.placeholder.com/192%22,%22sizes%22:%22192x192%22,%22type%22:%22image/png%22}]}@">
+  
+  <style>
+    * { box-sizing: border-box; }
+    
+    :root {
+      --bg-color: #111111;
+      --text-color: #e0e0e0;
+      --panel-bg: rgba(0, 0, 0, 0.9);
+      --border-color: #444;
+      --accent-color: #007aff;
+      --scrollbar-bg: #333;
+      --scrollbar-thumb: #666;
+    }
+    
+    body.light-mode {
+      --bg-color: #f5f5f5;
+      --text-color: #222222;
+      --panel-bg: rgba(255, 255, 255, 0.95);
+      --border-color: #ccc;
+      --scrollbar-bg: #ddd;
+      --scrollbar-thumb: #aaa;
+    }
+
+    body {
+      margin: 0;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+    }
+
+    #controls {
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--border-color);
+      padding: 10px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      z-index: 10;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+
+    #viewer {
+      flex: 1;
+      min-height: 0;
+      width: 100%;
+      padding: 20px 20px 20px 15px;
+      overflow-y: scroll;
+      -webkit-overflow-scrolling: touch;
+      position: relative;
+    }
+
+    #viewer::-webkit-scrollbar {
+      width: 10px;
+    }
+    #viewer::-webkit-scrollbar-track {
+      background: var(--scrollbar-bg);
+    }
+    #viewer::-webkit-scrollbar-thumb {
+      background: var(--scrollbar-thumb);
+      border-radius: 5px;
+    }
+
+    /* 💡 各行を管理するコンテナ */
+    #text-content {
+      max-width: 800px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column; /* 行を縦に並べる */
+      font-size: 16px;
+    }
+
+    /* 💡 1行ごとのスタイル（どれだけ折り返されても1つのブロック） */
+    .text-line {
+      white-space: pre-wrap;
+      word-break: break-all;
+      line-height: 1.7;
+      min-height: 1.7em; /* 空行がつぶれないように */
+    }
+
+    button, select {
+      padding: 8px 12px;
+      background: #333;
+      color: #fff;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    
+    body.light-mode button, body.light-mode select {
+      background: #fff;
+      color: #333;
+    }
+    
+    .file-label {
+      background: var(--accent-color);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+      color: #fff;
+      cursor: pointer;
+    }
+    input[type="file"] { display: none; }
+
+    #status {
+      font-size: 13px;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #line-counter {
+      background: var(--accent-color);
+      color: #fff;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: bold;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="controls">
+    <label class="file-label">
+      📁 選択
+      <input type="file" id="input-file" accept=".txt,.log,.html,.css,.js,.json">
+    </label>
+    
+    <select id="select-size">
+      <option value="14px">小 (14px)</option>
+      <option value="16px" selected>中 (16px)</option>
+      <option value="19px">大 (19px)</option>
+      <option value="24px">特大 (24px)</option>
+    </select>
+
+    <select id="select-encoding">
+      <option value="UTF-8" selected>UTF-8</option>
+      <option value="Shift_JIS">Shift_JIS</option>
+    </select>
+
+    <button id="btn-theme">☀️/🌙</button>
+
+    <span id="line-counter">1 行目</span>
+    <span id="status">未選択</span>
+  </div>
+
+  <div id="viewer">
+    <div id="text-content">
+      <div class="text-line">ファイルを選択してください。</div>
+    </div>
+  </div>
+
+  <script>
+    // PWA Service Worker
+    if ('serviceWorker' in navigator) {
+      const swCode = `
+        const CACHE_NAME = 'text-viewer-v3';
+        self.addEventListener('install', (e) => self.skipWaiting());
+        self.addEventListener('fetch', (e) => {
+          if (e.request.mode === 'navigate') {
+            e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+          }
+        });
+      `;
+      const blob = new Blob([swCode], { type: 'application/javascript' });
+      navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(console.error);
+    }
+
+    const inputFile = document.getElementById('input-file');
+    const selectSize = document.getElementById('select-size');
+    const selectEncoding = document.getElementById('select-encoding');
+    const btnTheme = document.getElementById('btn-theme');
+    const statusText = document.getElementById('status');
+    const textContent = document.getElementById('text-content');
+    const viewer = document.getElementById('viewer');
+    const lineCounter = document.getElementById('line-counter');
+
+    let currentFile = null;
+    let totalLines = 1;
+
+    inputFile.addEventListener('change', (e) => {
+      if (e.target.files.length === 0) return;
+      currentFile = e.target.files[0];
+      readFile();
+    });
+
+    selectEncoding.addEventListener('change', () => {
+      if (currentFile) readFile();
+    });
+
+    function readFile() {
+      if (!currentFile) return;
+      const encoding = selectEncoding.value;
+      const reader = new FileReader();
+
+      reader.onload = (e) => {
+        const text = e.target.result;
+        
+        // 💡 読み込み時に改行で分割し、1行ずつ要素を作成する
+        const lines = text.split(/\r\n|\r|\n/);
+        totalLines = lines.length;
+        
+        // メモリ効率よくDOMを追加するためのフラグメント
+        const fragment = document.createDocumentFragment();
+        lines.forEach((lineText) => {
+          const div = document.createElement('div');
+          div.className = 'text-line';
+          div.textContent = lineText;
+          fragment.appendChild(div);
+        });
+        
+        textContent.innerHTML = '';
+        fragment.appendChild(document.createElement('br')); // 最下部の余白用
+        textContent.appendChild(fragment);
+        
+        statusText.textContent = `${currentFile.name}`;
+        viewer.scrollTop = 0;
+        updateLineNumber();
+      };
+      reader.readAsText(currentFile, encoding);
+    }
+
+    // 💡 画面上の位置（Y座標）から正確な「論理行」を特定するロジック
+    function updateLineNumber() {
+      if (!currentFile) return;
+
+      const lines = textContent.getElementsByClassName('text-line');
+      if (lines.length === 0) return;
+
+      // ビューアの上端の基準位置（スクロールエリアの最上部）
+      const viewerTop = viewer.getBoundingClientRect().top;
+      
+      let currentLine = 1;
+
+      // 読書中、一番下に達した場合は最後の行にする
+      if (viewer.scrollHeight - viewer.scrollTop <= viewer.clientHeight + 5) {
+        currentLine = totalLines;
+      } else {
+        // 二分探索（バイナリサーチ）で、現在最上部をまたいでいる要素を爆速で探す
+        let low = 0;
+        let high = lines.length - 1;
+        
+        while (low <= high) {
+          const mid = Math.floor((low + high) / 2);
+          const rect = lines[mid].getBoundingClientRect();
+          
+          // 要素の上がビューア上端より上で、要素の下がビューア上端より下＝今見ている行
+          if (rect.top <= viewerTop + 20 && rect.bottom >= viewerTop + 20) {
+            currentLine = mid + 1;
+            break;
+          } else if (rect.top < viewerTop + 20) {
+            low = mid + 1;
+          } else {
+            high = mid - 1;
+          }
+        }
+      }
+
+      lineCounter.textContent = `${currentLine} / ${totalLines} 行`;
+    }
+
+    // スクロールイベントを監視
+    viewer.addEventListener('scroll', updateLineNumber);
+
+    // 文字サイズ変更
+    selectSize.addEventListener('change', (e) => {
+      textContent.style.fontSize = e.target.value;
+      setTimeout(updateLineNumber, 50);
+    });
+
+    // テーマ切り替え
+    btnTheme.addEventListener('click', () => {
+      document.body.classList.toggle('light-mode');
+    });
+
+    // メニューの開閉
+    textContent.addEventListener('click', (e) => {
+      if (window.getSelection().toString()) return;
+      const controls = document.getElementById('controls');
+      controls.style.display = controls.style.display === 'none' ? 'flex' : 'none';
+    });
+  </script>
+</body>
+</html>
