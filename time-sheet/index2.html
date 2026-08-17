@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>勤務管理マネージャー</title>
+    <style>
+        :root { --primary: #2563eb; --bg: #f1f5f9; }
+        body { font-family: sans-serif; background: var(--bg); margin: 0; padding: 10px; font-size: 16px; }
+        .card { background: white; border-radius: 12px; padding: 15px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        h2 { font-size: 1rem; margin: 0 0 10px 0; color: var(--primary); border-left: 4px solid var(--primary); padding-left: 8px; }
+        
+        input, select, button { width: 100%; padding: 12px; margin: 5px 0; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
+        button { background: var(--primary); color: white; border: none; font-weight: bold; cursor: pointer; }
+        .flex { display: flex; gap: 8px; align-items: center; }
+        
+        .staff-row { border-bottom: 1px solid #e2e8f0; padding: 12px 0; cursor: pointer; }
+        .staff-header { display: flex; justify-content: space-between; font-weight: bold; }
+        .total-hours { color: var(--primary); background: #eff6ff; padding: 2px 8px; border-radius: 4px; }
+        
+        .details { display: none; margin-top: 10px; overflow-x: auto; }
+        .details.active { display: block; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.8rem; background: #fff; min-width: 300px; }
+        th, td { border: 1px solid #e2e8f0; padding: 6px; text-align: center; }
+        th { background: #f8fafc; }
+        .sat { color: blue; }
+        .sun { color: red; }
+
+        .time-select-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 5px;
+            margin-top: 10px;
+        }
+
+        .time-box {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 0 5px;
+        }
+
+        .time-box select {
+            border: none;
+            background: transparent;
+            padding: 10px 2px;
+            margin: 0;
+            text-align: center;
+            flex: 1;
+        }
+
+        .time-separator {
+            font-weight: bold;
+            color: #64748b;
+            padding: 0 2px;
+        }
+
+        .label-sm {
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-bottom: 2px;
+        }
+
+        .month-picker {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .month-picker input[type="month"] {
+            flex: 1;
+            padding: 8px;
+            margin: 0;
+        }
+        .btn-delete {
+            background: none;
+            color: #ef4444;
+            border: none;
+            width: auto;
+            padding: 5px 10px;
+            font-size: 1.2rem;
+            font-weight: normal;
+        }
+        .btn-delete:active {
+            opacity: 0.5;
+        }
+
+        /* 画面クリア用スタイル */
+        .btn-clear-storage {
+            background: #ef4444;
+            margin-top: 10px;
+        }
+    </style>
+<link rel="manifest" href="manifest.json">
+</head>
+<body>
+
+    <div class="card">
+        <h2>1. スタッフ登録</h2>
+        <div class="flex">
+            <input type="text" id="staffName" placeholder="名前を入力">
+            <button onclick="addStaff()" style="width: 80px;">追加</button>
+        </div>
+    </div>
+
+<div class="card">
+    <h2>2. 勤務入力</h2>
+    <select id="staffSelect"><option value="">スタッフを選択</option></select>
+    
+    <div style="margin-top:10px;">
+        <div class="label-sm">日付</div>
+        <input type="date" id="workDate">
+    </div>
+
+    <div class="time-select-container">
+        <div style="flex: 1;">
+            <div class="label-sm">開始</div>
+            <div class="time-box">
+                <select id="startH"></select>
+                <span class="time-separator">:</span>
+                <select id="startM"></select>
+            </div>
+        </div>
+
+        <div style="flex: 1;">
+            <div class="label-sm">終了</div>
+            <div class="time-box">
+                <select id="endH"></select>
+                <span class="time-separator">:</span>
+                <select id="endM"></select>
+            </div>
+        </div>
+    </div>
+
+    <div style="margin-top:10px;">
+        <div class="label-sm">休憩(分)</div>
+        <input type="number" id="breakTime" value="60">
+    </div>
+    
+    <button onclick="saveRecord()" style="margin-top:15px;">保存する</button>
+</div>
+
+<div class="card">
+    <h2>3. 月間集計・詳細一覧</h2>
+    <div class="month-picker">
+        <small>表示月:</small>
+        <input type="month" id="viewMonth" onchange="render()">
+        <button onclick="downloadCSV()" style="width: auto; padding: 8px 15px; margin: 0; background: #059669;">CSV出力</button>
+        <button onclick="document.getElementById('csvFile').click()" style="width: auto; padding: 8px 15px; margin: 0; background: #64748b;">インポート</button>
+        <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCSV(this)">
+    </div>
+    <div id="displayArea"></div>
+</div>
+
+<div class="card" style="border: 1px solid #fca5a5; background: #fef2f2;">
+    <h2 style="color: #dc2626; border-color: #dc2626;">4. データ管理</h2>
+    <p style="font-size: 0.8rem; color: #7f1d1d; margin: 5px 0;">端末（ブラウザ）に保存されている全てのデータを消去します。</p>
+    <button class="btn-clear-storage" onclick="clearAllData()">全データをリセット（初期化）</button>
+</div>
+
+<script>
+    let data = JSON.parse(localStorage.getItem('workLogData')) || [];
+    const weekDays = ["日", "月", "火", "水", "木", "金", "土"];
+
+    const setupTimeSelect = () => {
+        const pad = i => i.toString().padStart(2, '0');
+        ['startH', 'endH'].forEach(id => {
+            for(let i=0; i<24; i++) document.getElementById(id).innerHTML += `<option value="${pad(i)}">${pad(i)}</option>`;
+        });
+        ['startM', 'endM'].forEach(id => {
+            for(let i=0; i<60; i+=10) document.getElementById(id).innerHTML += `<option value="${pad(i)}">${pad(i)}</option>`;
+        });
+        document.getElementById('startH').value = "09"; document.getElementById('endH').value = "18";
+    };
+
+    function addStaff() {
+        const name = document.getElementById('staffName').value;
+        if (!name) return;
+        data.push({ id: Date.now(), name: name, records: [] });
+        saveAndRender();
+        document.getElementById('staffName').value = '';
+    }
+
+    function saveAndRender() {
+        localStorage.setItem('workLogData', JSON.stringify(data));
+        render();
+    }
+
+    function toggleDetails(id) {
+        document.getElementById(`det-${id}`).classList.toggle('active');
+    }
+
+    function saveRecord() {
+        const sid = document.getElementById('staffSelect').value;
+        const dateStr = document.getElementById('workDate').value;
+        const startH = document.getElementById('startH').value;
+        const startM = document.getElementById('startM').value;
+        const endH = document.getElementById('endH').value;
+        const endM = document.getElementById('endM').value;
+        let brk = parseInt(document.getElementById('breakTime').value) || 0;
+
+        if (!sid || !dateStr) return alert("未入力項目があります");
+
+        const lastSelectedId = sid;
+        const start = startH + ":" + startM;
+        const end = endH + ":" + endM;
+
+        if (parseInt(endH) >= 20) {
+            brk += 30;
+        }
+
+        const dateObj = new Date(dateStr);
+        const dayOfWeek = weekDays[dateObj.getDay()];
+        const formattedDate = dateStr.replace(/-/g, '/').slice(5) + `(${dayOfWeek})`;
+
+        const staff = data.find(s => s.id == sid);
+        const [sH, sM] = [parseInt(startH), parseInt(startM)];
+        const [eH, eM] = [parseInt(endH), parseInt(endM)];
+        
+        const diffMin = (eH * 60 + eM) - (sH * 60 + sM) - brk;
+        const hours = (Math.max(0, diffMin) / 60).toFixed(2);
+
+        const idx = staff.records.findIndex(r => r.date === dateStr);
+        const record = { date: dateStr, displayDate: formattedDate, dayIdx: dateObj.getDay(), start, end, brk, hours };
+        
+        if (idx > -1) staff.records[idx] = record; else staff.records.push(record);
+        staff.records.sort((a, b) => new Date(a.date) - new Date(b.date));
+        
+        localStorage.setItem('workLogData', JSON.stringify(data));
+        localStorage.setItem('lastStaffId', lastSelectedId);
+
+        render();
+        alert(`保存しました${parseInt(endH) >= 20 ? "（夜間休憩30分を追加適用）" : ""}`);
+    }
+
+    document.getElementById('viewMonth').value = new Date().toISOString().slice(0, 7);
+
+    function deleteRecord(staffId, date) {
+        if (!confirm(`${date} の記録を削除しますか？`)) return;
+        
+        const staff = data.find(s => s.id == staffId);
+        staff.records = staff.records.filter(r => r.date !== date);
+        
+        saveAndRender();
+    }
+
+    function render() {
+        const select = document.getElementById('staffSelect');
+        const area = document.getElementById('displayArea');
+        const targetMonth = document.getElementById('viewMonth').value;
+        
+        const currentId = select.value || localStorage.getItem('lastStaffId');
+
+        select.innerHTML = '<option value="">スタッフを選択</option>';
+        area.innerHTML = '';
+
+        data.forEach(staff => {
+            const opt = document.createElement('option');
+            opt.value = staff.id;
+            opt.textContent = staff.name;
+            if (staff.id == currentId) opt.selected = true;
+            select.appendChild(opt);
+
+            const mRecords = staff.records.filter(r => r.date.startsWith(targetMonth));
+            const mTotal = mRecords.reduce((s, r) => s + parseFloat(r.hours), 0).toFixed(1);
+
+            const row = document.createElement('div');
+            row.className = 'staff-row';
+            row.innerHTML = `
+                <div class="staff-header" onclick="toggleDetails(${staff.id})">
+                    <span>${staff.name} ▼</span>
+                    <span class="total-hours">${mTotal}h</span>
+                </div>
+                <div class="details" id="det-${staff.id}">
+                    <table>
+                        <thead><tr><th>日付</th><th>時間</th><th>計</th><th></th></tr></thead>
+                        <tbody>
+                            ${mRecords.map(r => {
+                                let dayClass = r.dayIdx === 6 ? 'sat' : (r.dayIdx === 0 ? 'sun' : '');
+                                return `<tr>
+                                    <td class="${dayClass}">${r.displayDate}</td>
+                                    <td>${r.start}-${r.end}</td>
+                                    <td>${r.hours}</td>
+                                    <td><button class="btn-delete" onclick="event.stopPropagation(); deleteRecord(${staff.id}, '${r.date}')">×</button></td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            area.appendChild(row);
+        });
+    }
+
+    function downloadCSV() {
+        const targetMonth = document.getElementById('viewMonth').value;
+        if (!data || data.length === 0) return alert("データがありません");
+
+        let csvContent = "\ufeff";
+        csvContent += "スタッフ名,日付,開始時刻,終了時刻,休憩(分),勤務時間(h)\n";
+
+        let hasData = false;
+        data.forEach(staff => {
+            const mRecords = staff.records.filter(r => r.date.startsWith(targetMonth));
+            mRecords.forEach(r => {
+                hasData = true;
+                const row = [
+                    staff.name,
+                    r.displayDate,
+                    r.start,
+                    r.end,
+                    r.brk,
+                    r.hours
+                ].join(",");
+                csvContent += row + "\n";
+            });
+        });
+
+        if (!hasData) return alert(`${targetMonth} のデータは見つかりませんでした`);
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        
+        link.setAttribute("href", url);
+        link.setAttribute("download", `work_report_${targetMonth}.csv`);
+        link.style.visibility = 'hidden';
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    function importCSV(input) {
+        const file = input.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const text = e.target.result;
+            const lines = text.split(/\r\n|\n/);
+            
+            for (let i = 1; i < lines.length; i++) {
+                if (!lines[i]) continue;
+                
+                const [name, displayDate, start, end, brk, hours] = lines[i].split(',');
+                if (!name || !displayDate) continue;
+
+                let staff = data.find(s => s.name === name);
+                if (!staff) {
+                    staff = { id: Date.now() + i, name: name, records: [] };
+                    data.push(staff);
+                }
+
+                const currentYearMonth = document.getElementById('viewMonth').value;
+                const dayPart = displayDate.split('(')[0];
+                const systemDate = `${currentYearMonth.slice(0,4)}-${dayPart.replace('/', '-')}`;
+
+                const dateObj = new Date(systemDate);
+                const dayIdx = isNaN(dateObj.getDay()) ? 0 : dateObj.getDay();
+
+                const record = { 
+                    date: systemDate, 
+                    displayDate: displayDate, 
+                    dayIdx: dayIdx, 
+                    start, 
+                    end, 
+                    brk: parseInt(brk), 
+                    hours 
+                };
+
+                const existingIdx = staff.records.findIndex(r => r.date === systemDate);
+                if (existingIdx > -1) {
+                    staff.records[existingIdx] = record;
+                } else {
+                    staff.records.push(record);
+                }
+                staff.records.sort((a, b) => new Date(a.date) - new Date(b.date));
+            }
+
+            saveAndRender();
+            alert("インポートが完了しました。");
+            input.value = "";
+        };
+        reader.readAsText(file);
+    }
+
+    // --- ローカルストレージ全削除処理 ---
+    function clearAllData() {
+        if (!confirm("本当にすべてのデータ（登録スタッフ・勤務記録）を削除してよろしいですか？")) return;
+        if (!confirm("この操作は取り消せません。本当に消去しますか？")) return;
+
+        localStorage.removeItem('workLogData');
+        localStorage.removeItem('lastStaffId');
+        data = [];
+        render();
+        alert("すべてのローカルデータを削除しました。");
+    }
+
+    window.onload = () => { setupTimeSelect(); document.getElementById('workDate').valueAsDate = new Date(); render(); };
+  
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js');
+    }
+</script>
+</body>
+</html>
